@@ -1,4 +1,4 @@
-import { Github, Linkedin, Snowflake, Twitter } from "lucide-react";
+import { Globe, Mail, Send, Snowflake } from "lucide-react";
 
 export function Footer() {
   return (
@@ -19,7 +19,7 @@ export function Footer() {
               warehouses and retailers.
             </p>
             <div className="mt-5 flex gap-2">
-              {[Twitter, Linkedin, Github].map((Icon, i) => (
+              {[Send, Mail, Globe].map((Icon, i) => (
                 <a
                   key={i}
                   href="#"
