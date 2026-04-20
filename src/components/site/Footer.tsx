@@ -1,4 +1,4 @@
-import { Github, Linkedin, Snowflake, Twitter } from "lucide-react";
+import { Globe, Mail, Send, Snowflake } from "lucide-react";
 
 export function Footer() {
   return (
