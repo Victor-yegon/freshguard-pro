@@ -1,26 +1,49 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Navbar } from "@/components/site/Navbar";
+import { Hero } from "@/components/site/Hero";
+import { Features } from "@/components/site/Features";
+import { HowItWorks } from "@/components/site/HowItWorks";
+import { DashboardPreview } from "@/components/site/DashboardPreview";
+import { Benefits } from "@/components/site/Benefits";
+import { CtaSection } from "@/components/site/CtaSection";
+import { Footer } from "@/components/site/Footer";
 
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({
+    meta: [
+      { title: "ChillSense — Smart Monitoring for Safer Food Storage" },
+      {
+        name: "description",
+        content:
+          "Track temperature, prevent spoilage and protect inventory in real-time with ChillSense smart food storage monitoring.",
+      },
+      {
+        property: "og:title",
+        content: "ChillSense — Smart Monitoring for Safer Food Storage",
+      },
+      {
+        property: "og:description",
+        content:
+          "Real-time temperature, humidity and spoilage risk monitoring for kitchens, warehouses and retailers.",
+      },
+    ],
+  }),
+  component: HomePage,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+function HomePage() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen scroll-smooth bg-background text-foreground antialiased">
+      <Navbar />
+      <main>
+        <Hero />
+        <Features />
+        <HowItWorks />
+        <DashboardPreview />
+        <Benefits />
+        <CtaSection />
+      </main>
+      <Footer />
     </div>
   );
-}
-
-function Index() {
-  return <PlaceholderIndex />;
 }
