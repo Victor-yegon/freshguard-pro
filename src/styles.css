@@ -71,7 +71,8 @@
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.06);
   --shadow-elevated: 0 2px 4px oklch(0 0 0 / 0.05), 0 24px 48px -12px oklch(0 0 0 / 0.12);
-  --shadow-glow: 0 0 0 1px oklch(0.62 0.16 230 / 0.15), 0 20px 60px -20px oklch(0.62 0.16 230 / 0.35);
+  --shadow-glow:
+    0 0 0 1px oklch(0.62 0.16 230 / 0.15), 0 20px 60px -20px oklch(0.62 0.16 230 / 0.35);
 
   --gradient-hero: linear-gradient(135deg, oklch(0.98 0.01 230) 0%, oklch(0.96 0.02 165) 100%);
   --gradient-brand: linear-gradient(135deg, oklch(0.66 0.16 230) 0%, oklch(0.72 0.17 165) 100%);
@@ -102,11 +103,11 @@
   --accent: oklch(0.95 0.02 230);
   --accent-foreground: oklch(0.32 0.035 250);
   /* Spec status colors */
-  --safe: oklch(0.74 0.17 150);            /* #2ECC71 */
+  --safe: oklch(0.74 0.17 150); /* #2ECC71 */
   --safe-foreground: oklch(1 0 0);
-  --warning: oklch(0.84 0.16 90);          /* #F1C40F */
+  --warning: oklch(0.84 0.16 90); /* #F1C40F */
   --warning-foreground: oklch(0.25 0.03 90);
-  --critical: oklch(0.64 0.22 27);         /* #E74C3C */
+  --critical: oklch(0.64 0.22 27); /* #E74C3C */
   --critical-foreground: oklch(1 0 0);
   --destructive: oklch(0.64 0.22 27);
   --destructive-foreground: oklch(1 0 0);

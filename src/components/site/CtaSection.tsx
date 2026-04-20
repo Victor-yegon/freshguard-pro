@@ -1,4 +1,5 @@
 import { ArrowRight } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 
 export function CtaSection() {
@@ -18,17 +19,20 @@ export function CtaSection() {
               Start monitoring your storage smarter today.
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-primary-foreground/80">
-              Set up your first room in minutes. No hardware required to start —
-              run in simulation mode.
+              Set up your first room in minutes. No hardware required to start — run in simulation
+              mode.
             </p>
             <div className="mt-8 flex justify-center">
               <Button
+                asChild
                 size="lg"
                 variant="secondary"
                 className="rounded-xl bg-card text-foreground hover:bg-card/90"
               >
-                Create Account
-                <ArrowRight className="ml-1 h-4 w-4" />
+                <Link to="/register">
+                  Create Account
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
               </Button>
             </div>
           </div>

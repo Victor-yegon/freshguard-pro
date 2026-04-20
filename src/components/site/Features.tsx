@@ -1,11 +1,4 @@
-import {
-  Activity,
-  BellRing,
-  Building2,
-  Brain,
-  CalendarClock,
-  CloudSun,
-} from "lucide-react";
+import { Activity, BellRing, Building2, Brain, CalendarClock, CloudSun } from "lucide-react";
 
 const features = [
   {
@@ -45,15 +38,13 @@ export function Features() {
     <section id="features" className="py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-wider text-brand">
-            Features
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-brand">Features</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Everything you need to keep food safe
           </h2>
           <p className="mt-4 text-muted-foreground">
-            From sensor ingestion to actionable alerts — purpose-built for kitchens,
-            warehouses and retailers.
+            From sensor ingestion to actionable alerts — purpose-built for kitchens, warehouses and
+            retailers.
           </p>
         </div>
 
@@ -66,12 +57,8 @@ export function Features() {
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-brand-foreground">
                 <f.icon className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 text-lg font-semibold text-foreground">
-                {f.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {f.body}
-              </p>
+              <h3 className="mt-5 text-lg font-semibold text-foreground">{f.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
             </div>
           ))}
         </div>

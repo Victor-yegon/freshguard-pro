@@ -52,9 +52,7 @@ export function DashboardMock() {
         <div className="mt-4 rounded-2xl border border-border/60 bg-surface p-4">
           <div className="mb-2 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Temperature · last 24h
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">Temperature · last 24h</p>
               <p className="text-sm font-semibold text-foreground">Cold Room A</p>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-safe/10 px-2.5 py-1 text-xs font-medium text-safe">
@@ -97,20 +95,10 @@ export function DashboardMock() {
 
         {/* alerts */}
         <div className="mt-4 rounded-2xl border border-border/60 bg-surface p-4">
-          <p className="mb-3 text-xs font-medium text-muted-foreground">
-            Risk Alerts
-          </p>
+          <p className="mb-3 text-xs font-medium text-muted-foreground">Risk Alerts</p>
           <div className="space-y-2">
-            <AlertRow
-              tone="warning"
-              title="Dairy shelf trending warm"
-              meta="Room A · 8 min ago"
-            />
-            <AlertRow
-              tone="critical"
-              title="Freezer B above threshold"
-              meta="Room B · 2 min ago"
-            />
+            <AlertRow tone="warning" title="Dairy shelf trending warm" meta="Room A · 8 min ago" />
+            <AlertRow tone="critical" title="Freezer B above threshold" meta="Room B · 2 min ago" />
           </div>
         </div>
       </div>
@@ -145,9 +133,7 @@ function StatCard({
           {icon}
         </span>
       </div>
-      <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-        {value}
-      </p>
+      <p className="mt-2 text-xl font-semibold tracking-tight text-foreground">{value}</p>
       <p className="text-[11px] text-muted-foreground">{sub}</p>
     </div>
   );

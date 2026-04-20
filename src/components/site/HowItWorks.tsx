@@ -23,9 +23,7 @@ export function HowItWorks() {
     <section id="how" className="bg-surface py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-wider text-brand">
-            How it works
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-brand">How it works</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             From sensor to action in three steps
           </h2>
@@ -48,12 +46,8 @@ export function HowItWorks() {
               <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Step {i + 1}
               </p>
-              <h3 className="mt-1 text-lg font-semibold text-foreground">
-                {s.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {s.body}
-              </p>
+              <h3 className="mt-1 text-lg font-semibold text-foreground">{s.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
             </div>
           ))}
         </div>

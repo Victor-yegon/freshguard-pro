@@ -19,8 +19,8 @@ export function DashboardPreview() {
               Every cold chain, one calm view
             </h2>
             <p className="mt-4 max-w-lg text-muted-foreground">
-              Temperature, humidity, weather context, products at risk and active
-              alerts — all visible at a glance, drill-down on demand.
+              Temperature, humidity, weather context, products at risk and active alerts — all
+              visible at a glance, drill-down on demand.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-2">

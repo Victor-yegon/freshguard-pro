@@ -10,13 +10,10 @@ export function Footer() {
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--gradient-brand)] text-primary-foreground">
                 <Snowflake className="h-5 w-5" />
               </span>
-              <span className="text-lg font-semibold text-foreground">
-                ChillSense
-              </span>
+              <span className="text-lg font-semibold text-foreground">ChillSense</span>
             </div>
             <p className="mt-3 max-w-sm text-sm text-muted-foreground">
-              Smart monitoring for safer food storage. Built for kitchens,
-              warehouses and retailers.
+              Smart monitoring for safer food storage. Built for kitchens, warehouses and retailers.
             </p>
             <div className="mt-5 flex gap-2">
               {[Send, Mail, Globe].map((Icon, i) => (
@@ -59,13 +56,7 @@ export function Footer() {
   );
 }
 
-function FooterCol({
-  title,
-  links,
-}: {
-  title: string;
-  links: { l: string; h: string }[];
-}) {
+function FooterCol({ title, links }: { title: string; links: { l: string; h: string }[] }) {
   return (
     <div>
       <p className="text-sm font-semibold text-foreground">{title}</p>

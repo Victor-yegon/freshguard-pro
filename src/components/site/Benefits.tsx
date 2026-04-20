@@ -28,9 +28,7 @@ export function Benefits() {
     <section id="benefits" className="bg-surface py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-wider text-brand">
-            Benefits
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-brand">Benefits</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Built to protect what matters
           </h2>
@@ -45,12 +43,8 @@ export function Benefits() {
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-safe/10 text-safe">
                 <b.icon className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 text-base font-semibold text-foreground">
-                {b.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                {b.body}
-              </p>
+              <h3 className="mt-5 text-base font-semibold text-foreground">{b.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{b.body}</p>
             </div>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DashboardMock } from "./DashboardMock";
+import { Link } from "@tanstack/react-router";
+import dashboardPreview from "@/assets/dashboard-preview.jpg";
 
 export function Hero() {
   return (
@@ -29,17 +30,19 @@ export function Hero() {
             </span>
           </h1>
           <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Track temperature, prevent spoilage, and protect your inventory in
-            real-time — across every cold room, freezer and shelf.
+            Track temperature, prevent spoilage, and protect your inventory in real-time — across
+            every cold room, freezer and shelf.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button size="lg" className="rounded-xl shadow-[var(--shadow-glow)]">
-              Get Started
-              <ArrowRight className="ml-1 h-4 w-4" />
+            <Button asChild size="lg" className="rounded-xl shadow-[var(--shadow-glow)]">
+              <Link to="/register">
+                Get Started
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
             </Button>
-            <Button size="lg" variant="outline" className="rounded-xl">
-              Login
+            <Button asChild size="lg" variant="outline" className="rounded-xl">
+              <Link to="/login">Login</Link>
             </Button>
           </div>
 
@@ -50,9 +53,7 @@ export function Hero() {
               { k: "30%", v: "Less waste" },
             ].map((s) => (
               <div key={s.v}>
-                <dt className="text-2xl font-semibold tracking-tight text-foreground">
-                  {s.k}
-                </dt>
+                <dt className="text-2xl font-semibold tracking-tight text-foreground">{s.k}</dt>
                 <dd className="text-xs text-muted-foreground">{s.v}</dd>
               </div>
             ))}
@@ -60,7 +61,18 @@ export function Hero() {
         </div>
 
         <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
-          <DashboardMock />
+          <div className="relative">
+            <div className="absolute -inset-6 -z-10 rounded-[2rem] bg-[var(--gradient-brand)] opacity-20 blur-3xl" />
+            <div className="overflow-hidden rounded-3xl border border-border/60 bg-card shadow-[var(--shadow-elevated)]">
+              <img
+                src={dashboardPreview}
+                alt="ChillSense dashboard preview"
+                className="h-auto w-full"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </section>

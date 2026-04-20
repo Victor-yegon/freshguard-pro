@@ -1,12 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Navbar } from "@/components/site/Navbar";
 import { Hero } from "@/components/site/Hero";
 import { Features } from "@/components/site/Features";
 import { HowItWorks } from "@/components/site/HowItWorks";
 import { DashboardPreview } from "@/components/site/DashboardPreview";
 import { Benefits } from "@/components/site/Benefits";
 import { CtaSection } from "@/components/site/CtaSection";
-import { Footer } from "@/components/site/Footer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -33,17 +31,13 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   return (
-    <div className="min-h-screen scroll-smooth bg-background text-foreground antialiased">
-      <Navbar />
-      <main>
-        <Hero />
-        <Features />
-        <HowItWorks />
-        <DashboardPreview />
-        <Benefits />
-        <CtaSection />
-      </main>
-      <Footer />
-    </div>
+    <main>
+      <Hero />
+      <Features />
+      <HowItWorks />
+      <DashboardPreview />
+      <Benefits />
+      <CtaSection />
+    </main>
   );
 }

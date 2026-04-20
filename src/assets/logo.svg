@@ -1,0 +1,19 @@
+<svg width="200" height="60" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="200" height="60" rx="12" fill="#FFFFFF"></rect>
+
+  <!-- Icon Circle -->
+  <circle cx="30" cy="30" r="20" fill="#2ECC71"></circle>
+
+  <!-- Thermometer -->
+  <rect x="28" y="18" width="4" height="18" rx="2" fill="#FFFFFF"></rect>
+  <circle cx="30" cy="40" r="5" fill="#FFFFFF"></circle>
+
+  <!-- Leaf -->
+  <path d="M35 20 C45 10, 50 25, 35 30 C30 28, 30 22, 35 20 Z" fill="#27AE60"></path>
+
+  <!-- Text -->
+  <text x="60" y="35" font-family="Arial, sans-serif" font-size="16" fill="#2C3E50" font-weight="bold">
+    FoodSafe Monitor
+  </text>
+</svg>

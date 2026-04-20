@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" rx="12" fill="#2ECC71"></rect>
+
+  <!-- Thermometer -->
+  <rect x="28" y="12" width="8" height="28" rx="4" fill="#FFFFFF"></rect>
+  <circle cx="32" cy="44" r="8" fill="#FFFFFF"></circle>
+
+  <!-- Leaf -->
+  <path d="M36 16 C50 6, 58 26, 36 34 C30 30, 30 20, 36 16 Z" fill="#27AE60"></path>
+</svg>
