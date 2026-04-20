@@ -1,4 +1,4 @@
-import { Github, Linkedin, Snowflake, Twitter } from "lucide-react/icons";
+import { Github, Linkedin, Snowflake, Twitter } from "lucide-react";
 
 export function Footer() {
   return (
