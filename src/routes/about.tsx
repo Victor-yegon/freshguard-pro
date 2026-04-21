@@ -1,14 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { PublicLayout } from "@/components/layouts/PublicLayout";
 
 export const Route = createFileRoute("/about")({
   head: () => ({
     meta: [
-      { title: "About — ChillSense" },
+      { title: "About — FoodSafe Monitor" },
       {
         name: "description",
         content:
-          "Learn how ChillSense helps kitchens, warehouses, and retailers monitor cold storage and reduce food waste.",
+          "Learn how FoodSafe Monitor helps kitchens, warehouses, and retailers monitor cold storage and reduce food waste.",
       },
     ],
   }),
@@ -17,15 +18,16 @@ export const Route = createFileRoute("/about")({
 
 function AboutPage() {
   return (
-    <main className="mx-auto max-w-7xl px-4 pb-20 pt-28 sm:px-6 lg:px-8">
-      <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
+    <PublicLayout>
+      <section className="mx-auto max-w-7xl px-4 pb-20 pt-28 sm:px-6 lg:px-8">
+        <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wider text-brand">About</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Built for calmer cold-chain operations
           </h1>
           <p className="mt-4 max-w-xl text-muted-foreground">
-            ChillSense helps teams monitor temperature and humidity, receive alerts fast, and keep
+            FoodSafe Monitor helps teams monitor temperature and humidity, receive alerts fast, and keep
             inventory rotating safely — with audit-ready logs that support food safety programs.
           </p>
 
@@ -62,18 +64,19 @@ function AboutPage() {
         <div className="rounded-3xl border border-border/60 bg-card p-6 shadow-[var(--shadow-elevated)]">
           <h2 className="text-lg font-semibold text-foreground">Ready to try it?</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Create an account or sign in to connect your first room and start collecting readings.
+            Contact us for a demo or return home to explore the product pages.
           </p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg" className="rounded-xl">
-              <Link to="/register">Create account</Link>
+              <Link to="/contact">Contact us</Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="rounded-xl">
-              <Link to="/login">Login</Link>
+              <Link to="/">Back home</Link>
             </Button>
           </div>
         </div>
-      </div>
-    </main>
+        </div>
+      </section>
+    </PublicLayout>
   );
 }

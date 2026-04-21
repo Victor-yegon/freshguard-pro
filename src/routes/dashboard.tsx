@@ -18,6 +18,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { MainLayout } from "@/components/layouts/MainLayout";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Loader2 } from "lucide-react";
 
 type RoomRow = {
   id: string;
@@ -93,6 +98,7 @@ type WeatherState = {
   error: string | null;
   data: WeatherSnapshot | null;
   coordinates: { latitude: number; longitude: number } | null;
+  locationName: string | null;
 };
 
 type WeatherHistoryPoint = {
@@ -108,15 +114,15 @@ type WeatherHistoryRow = {
 };
 
 const dashboardViewSchema = z.object({
-  view: z.enum(["products", "rooms", "reports"]).optional(),
+  view: z.enum(["overview", "products", "rooms", "reports"]).optional(),
 });
 
 export const Route = createFileRoute("/dashboard")({
   validateSearch: (search) => dashboardViewSchema.parse(search),
   head: () => ({
     meta: [
-      { title: "Dashboard — ChillSense" },
-      { name: "description", content: "Your ChillSense dashboard." },
+      { title: "Dashboard — FoodSafe Monitor" },
+      { name: "description", content: "Your FoodSafe Monitor dashboard." },
     ],
   }),
   beforeLoad: async () => {
@@ -143,7 +149,7 @@ export const Route = createFileRoute("/dashboard")({
 function DashboardPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const activeView = search.view ?? "reports";
+  const activeView = search.view ?? "overview";
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -152,6 +158,7 @@ function DashboardPage() {
     error: null,
     data: null,
     coordinates: null,
+    locationName: null,
   });
   const [weatherHistory, setWeatherHistory] = React.useState<WeatherHistoryPoint[]>([]);
   const [state, setState] = React.useState<DashboardState>({
@@ -181,6 +188,20 @@ function DashboardPage() {
   });
   const [savingRoom, setSavingRoom] = React.useState(false);
   const [savingProduct, setSavingProduct] = React.useState(false);
+  const [editingRoomId, setEditingRoomId] = React.useState<string | null>(null);
+  const [updatingRoomId, setUpdatingRoomId] = React.useState<string | null>(null);
+  const [deletingRoomId, setDeletingRoomId] = React.useState<string | null>(null);
+  const [assigningProductRoomId, setAssigningProductRoomId] = React.useState<string | null>(null);
+  const [existingProductByRoom, setExistingProductByRoom] = React.useState<Record<string, string>>({});
+  const [moveTargetRoomIdByRoom, setMoveTargetRoomIdByRoom] = React.useState<Record<string, string>>({});
+  const [roomEditForm, setRoomEditForm] = React.useState({
+    name: "",
+    location: "",
+    ideal_temperature_min: "2",
+    ideal_temperature_max: "6",
+    ideal_humidity_min: "50",
+    ideal_humidity_max: "70",
+  });
   const [actionMessage, setActionMessage] = React.useState<string>("");
   const [actionError, setActionError] = React.useState<string | null>(null);
 
@@ -434,6 +455,132 @@ function DashboardPage() {
     }
   }
 
+  function beginEditRoom(room: RoomRow) {
+    setEditingRoomId(room.id);
+    setRoomEditForm({
+      name: room.name,
+      location: room.location ?? "",
+      ideal_temperature_min: String(room.ideal_temperature_min),
+      ideal_temperature_max: String(room.ideal_temperature_max),
+      ideal_humidity_min: String(room.ideal_humidity_min),
+      ideal_humidity_max: String(room.ideal_humidity_max),
+    });
+  }
+
+  async function saveRoomEdit(roomId: string) {
+    setUpdatingRoomId(roomId);
+    setActionError(null);
+    setActionMessage("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const result = await supabase
+        .from("storage_rooms")
+        .update({
+          name: roomEditForm.name.trim(),
+          location: roomEditForm.location.trim() || null,
+          ideal_temperature_min: Number(roomEditForm.ideal_temperature_min),
+          ideal_temperature_max: Number(roomEditForm.ideal_temperature_max),
+          ideal_humidity_min: Number(roomEditForm.ideal_humidity_min),
+          ideal_humidity_max: Number(roomEditForm.ideal_humidity_max),
+        })
+        .eq("id", roomId);
+
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+
+      setActionMessage("Room updated.");
+      setEditingRoomId(null);
+      await loadDashboard();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to update room.");
+    } finally {
+      setUpdatingRoomId(null);
+    }
+  }
+
+  async function assignExistingProductToRoom(roomId: string) {
+    setAssigningProductRoomId(roomId);
+    setActionError(null);
+    setActionMessage("");
+
+    try {
+      const selectedProductId = existingProductByRoom[roomId];
+      if (!selectedProductId) {
+        throw new Error("Select an existing product first.");
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      const result = await supabase
+        .from("products")
+        .update({ storage_room_id: roomId })
+        .eq("id", selectedProductId);
+
+      if (result.error) {
+        throw new Error(result.error.message);
+      }
+
+      setActionMessage("Product assigned to room.");
+      setExistingProductByRoom((current) => ({ ...current, [roomId]: "" }));
+      await loadDashboard();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to assign product to room.");
+    } finally {
+      setAssigningProductRoomId(null);
+    }
+  }
+
+  async function deleteRoom(roomId: string) {
+    setDeletingRoomId(roomId);
+    setActionError(null);
+    setActionMessage("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const productsInRoom = state.products.filter((product) => product.storage_room_id === roomId);
+      const otherRooms = state.rooms.filter((room) => room.id !== roomId);
+
+      if (productsInRoom.length > 0) {
+        if (otherRooms.length === 0) {
+          throw new Error(
+            "Cannot delete this room because it contains products and no other room exists to move them to.",
+          );
+        }
+
+        const targetRoomId = moveTargetRoomIdByRoom[roomId] || otherRooms[0].id;
+        const moveResult = await supabase
+          .from("products")
+          .update({ storage_room_id: targetRoomId })
+          .eq("storage_room_id", roomId);
+
+        if (moveResult.error) {
+          throw new Error(moveResult.error.message);
+        }
+      }
+
+      const deleteResult = await supabase.from("storage_rooms").delete().eq("id", roomId);
+
+      if (deleteResult.error) {
+        throw new Error(deleteResult.error.message);
+      }
+
+      setActionMessage(
+        productsInRoom.length > 0
+          ? "Room deleted and products were moved safely."
+          : "Room deleted.",
+      );
+      if (editingRoomId === roomId) {
+        setEditingRoomId(null);
+      }
+      await loadDashboard();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to delete room.");
+    } finally {
+      setDeletingRoomId(null);
+    }
+  }
+
   async function loadWeatherFromLocation() {
     setWeather((current) => ({ ...current, loading: true, error: null }));
 
@@ -481,6 +628,7 @@ function DashboardPage() {
             error: null,
             data: snapshot,
             coordinates: { latitude, longitude },
+            locationName: snapshot.locationName,
           });
 
           setWeatherHistory((current) => {
@@ -515,15 +663,19 @@ function DashboardPage() {
     );
   }
 
+  const roomCurrentTemperature =
+    weather.data?.current.temperature_2m ?? latestWeatherHistory?.temperature ?? null;
+  const roomCurrentHumidity =
+    weather.data?.current.relative_humidity_2m ?? latestWeatherHistory?.humidity ?? null;
+
   const healthyRooms = state.rooms.filter((room) => {
-    const latest = state.latestByRoom[room.id];
-    if (!latest) return false;
+    if (roomCurrentTemperature === null || roomCurrentHumidity === null) return false;
 
     return (
-      Number(latest.temperature) >= Number(room.ideal_temperature_min) &&
-      Number(latest.temperature) <= Number(room.ideal_temperature_max) &&
-      Number(latest.humidity) >= Number(room.ideal_humidity_min) &&
-      Number(latest.humidity) <= Number(room.ideal_humidity_max)
+      Number(roomCurrentTemperature) >= Number(room.ideal_temperature_min) &&
+      Number(roomCurrentTemperature) <= Number(room.ideal_temperature_max) &&
+      Number(roomCurrentHumidity) >= Number(room.ideal_humidity_min) &&
+      Number(roomCurrentHumidity) <= Number(room.ideal_humidity_max)
     );
   }).length;
 
@@ -580,8 +732,50 @@ function DashboardPage() {
   const outsideTemperature = weather.data?.current.temperature_2m ?? null;
   const isOutsideTemperatureHigh = outsideTemperature !== null && outsideTemperature >= 30;
   const roomNameById = new Map(state.rooms.map((room) => [room.id, room.name]));
+  const productCountByRoom = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const product of state.products) {
+      counts.set(product.storage_room_id, (counts.get(product.storage_room_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [state.products]);
 
-  function goToView(view: "products" | "rooms" | "reports") {
+  const resolvedLocationLabel =
+    weather.locationName ||
+    (weather.data?.timezone
+      ? weather.data.timezone.split("/").pop()?.replace(/_/g, " ") ?? null
+      : null);
+
+  const latestWeatherHistory = weatherHistory.length > 0 ? weatherHistory[weatherHistory.length - 1] : null;
+
+  const summaryTemperature =
+    state.avgTemperature !== null
+      ? state.avgTemperature
+      : weather.data?.current.temperature_2m ?? latestWeatherHistory?.temperature ?? null;
+  const summaryHumidity =
+    state.avgHumidity !== null
+      ? state.avgHumidity
+      : weather.data?.current.relative_humidity_2m ?? latestWeatherHistory?.humidity ?? null;
+
+  const summaryTemperatureSub =
+    state.avgTemperature !== null
+      ? "Latest room readings"
+      : weather.data?.current.temperature_2m !== null && weather.data?.current.temperature_2m !== undefined
+        ? "From current location weather"
+        : latestWeatherHistory?.temperature !== null && latestWeatherHistory?.temperature !== undefined
+          ? "From recent weather history"
+        : "No readings yet";
+  const summaryHumiditySub =
+    state.avgHumidity !== null
+      ? "Latest room readings"
+      : weather.data?.current.relative_humidity_2m !== null &&
+          weather.data?.current.relative_humidity_2m !== undefined
+        ? "From current location weather"
+        : latestWeatherHistory?.humidity !== null && latestWeatherHistory?.humidity !== undefined
+          ? "From recent weather history"
+        : "No readings yet";
+
+  function goToView(view: "overview" | "products" | "rooms" | "reports") {
     navigate({
       to: "/dashboard",
       search: (prev) => ({ ...prev, view }),
@@ -589,88 +783,187 @@ function DashboardPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 pb-20 pt-28 sm:px-6 lg:px-8">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
-        <aside className="rounded-3xl border border-border/60 bg-card p-4 shadow-[var(--shadow-soft)] lg:sticky lg:top-24 lg:h-fit">
-          <p className="mb-3 text-sm font-semibold uppercase tracking-wider text-brand">Dashboard</p>
-          <nav className="space-y-1">
-            <button
+    <MainLayout
+      title="Dashboard"
+      subtitle="Monitor your food storage conditions in real-time."
+      sidebarContent={
+        <>
+          <div className="space-y-1">
+            <p className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Overview
+            </p>
+            <Button
               type="button"
-              onClick={() => goToView("products")}
-              className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                activeView === "products"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
+              size="sm"
+              variant={activeView === "overview" ? "default" : "secondary"}
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => goToView("overview")}
             >
-              Products
-            </button>
-            <button
-              type="button"
-              onClick={() => goToView("rooms")}
-              className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                activeView === "rooms"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              Storage Rooms
-            </button>
-            <button
-              type="button"
-              onClick={() => goToView("reports")}
-              className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                activeView === "reports"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              Reports
-            </button>
-          </nav>
-        </aside>
-
-        <div>
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">Dashboard</h1>
-              <p className="mt-2 text-muted-foreground">
-                Monitor your food storage conditions in real-time.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={loadWeatherFromLocation}
-                className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                {weather.loading ? "Getting location…" : "Refresh location weather"}
-              </button>
-              <button
-                onClick={loadDashboard}
-                className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                Refresh
-              </button>
-            </div>
+              Overview
+            </Button>
           </div>
 
-          {error ? (
-            <p className="mb-6 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
-          ) : null}
-
-          {actionError ? (
-            <p className="mb-6 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {actionError}
+          <div className="space-y-1">
+            <p className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Views
             </p>
-          ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant={activeView === "reports" ? "default" : "secondary"}
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => goToView("reports")}
+            >
+              Reports
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeView === "rooms" ? "default" : "secondary"}
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => goToView("rooms")}
+            >
+              Storage Rooms
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeView === "products" ? "default" : "secondary"}
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => goToView("products")}
+            >
+              Products
+            </Button>
+          </div>
 
-          {actionMessage ? (
-            <p className="mb-6 rounded-md bg-safe/15 p-3 text-sm text-foreground">{actionMessage}</p>
-          ) : null}
+          <div className="space-y-2">
+            <p className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Actions
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={loadWeatherFromLocation}
+            >
+              {weather.loading ? "Getting location…" : "Refresh location weather"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={loadDashboard}
+            >
+              Refresh
+            </Button>
+          </div>
+        </>
+      }
+    >
+      {error ? (
+        <Alert variant="destructive" className="mb-6 rounded-2xl">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {actionError ? (
+        <Alert variant="destructive" className="mb-6 rounded-2xl">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {actionMessage ? (
+        <Alert className="mb-6 rounded-2xl border-safe/30 bg-safe/10 text-foreground">
+          <AlertDescription>{actionMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {activeView === "overview" ? (
+        <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
+            <h2 className="text-lg font-semibold text-foreground">Current location</h2>
+            {weather.loading ? (
+              <p className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-safe">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Detecting your current location…
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {resolvedLocationLabel ?? "Location unavailable"}
+              </p>
+            )}
+            {weather.error ? (
+              <p className="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {weather.error}
+              </p>
+            ) : null}
+            {weather.data ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <WeatherStat
+                  label="Temperature"
+                  value={formatTemperature(weather.data.current.temperature_2m)}
+                />
+                <WeatherStat
+                  label="Humidity"
+                  value={formatHumidity(weather.data.current.relative_humidity_2m)}
+                />
+                <WeatherStat label="Wind speed" value={formatWind(weather.data.current.wind_speed_10m)} />
+                <WeatherStat
+                  label="Condition"
+                  value={formatWeatherCode(weather.data.current.weather_code)}
+                />
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Location request is sent automatically to fetch local weather from Open-Meteo.
+              </p>
+            )}
+            {weather.coordinates ? (
+              <p className="mt-4 text-xs text-muted-foreground">
+                Coordinates: {weather.coordinates.latitude.toFixed(4)}, {weather.coordinates.longitude.toFixed(4)}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
+            <h2 className="text-lg font-semibold text-foreground">Status summary</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Monitoring highlights for rooms, humidity, and alert activity.
+            </p>
+            {isOutsideTemperatureHigh ? (
+              <p className="mt-4 rounded-md bg-warning/20 p-3 text-sm text-warning-foreground">
+                High outside temperature may increase spoilage risk.
+              </p>
+            ) : null}
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <MetricCard
+                label="Storage rooms"
+                value={String(state.rooms.length)}
+                sub={loading ? "Loading…" : `${healthyRooms} in range`}
+              />
+              <MetricCard
+                label="Active alerts"
+                value={String(state.activeAlerts)}
+                sub={`${state.criticalAlerts} critical/danger`}
+              />
+              <MetricCard
+                label="Average temperature"
+                value={summaryTemperature !== null ? `${summaryTemperature.toFixed(1)}°C` : "—"}
+                sub={summaryTemperatureSub}
+              />
+              <MetricCard
+                label="Average humidity"
+                value={summaryHumidity !== null ? `${summaryHumidity.toFixed(1)}%` : "—"}
+                sub={summaryHumiditySub}
+              />
+            </div>
+          </div>
+        </section>
+      ) : null}
 
           {activeView === "products" ? (
             <section id="products" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Products</h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 Create products to monitor and assign them to a storage room.
@@ -680,7 +973,7 @@ function DashboardPage() {
                   <label htmlFor="product-name" className="text-sm font-medium text-foreground">
                     Product name
                   </label>
-                  <input
+                  <Input
                     id="product-name"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                     placeholder="Product name"
@@ -710,7 +1003,7 @@ function DashboardPage() {
                   <label htmlFor="product-quantity" className="text-sm font-medium text-foreground">
                     Quantity
                   </label>
-                  <input
+                  <Input
                     id="product-quantity"
                     type="number"
                     min={1}
@@ -738,17 +1031,17 @@ function DashboardPage() {
                     ))}
                   </select>
                 </div>
-                <button
+                <Button
                   type="submit"
                   disabled={savingProduct}
-                  className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-60"
+                  className="rounded-xl"
                 >
                   {savingProduct ? "Saving…" : "Create product"}
-                </button>
+                </Button>
               </form>
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Product list</h2>
               {state.products.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">No products found.</p>
@@ -770,7 +1063,7 @@ function DashboardPage() {
 
           {activeView === "rooms" ? (
             <section id="storage-rooms" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Storage Rooms</h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 Create rooms and configure ideal thresholds for monitoring.
@@ -780,7 +1073,7 @@ function DashboardPage() {
                   <label htmlFor="room-name" className="text-sm font-medium text-foreground">
                     Room name
                   </label>
-                  <input
+                  <Input
                     id="room-name"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                     placeholder="Room name"
@@ -793,7 +1086,7 @@ function DashboardPage() {
                   <label htmlFor="room-location" className="text-sm font-medium text-foreground">
                     Location
                   </label>
-                  <input
+                  <Input
                     id="room-location"
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                     placeholder="Location"
@@ -805,7 +1098,7 @@ function DashboardPage() {
                   <label htmlFor="room-temp-min" className="text-sm font-medium text-foreground">
                     Ideal temperature min (°C)
                   </label>
-                  <input
+                  <Input
                     id="room-temp-min"
                     type="number"
                     step="0.1"
@@ -820,7 +1113,7 @@ function DashboardPage() {
                   <label htmlFor="room-temp-max" className="text-sm font-medium text-foreground">
                     Ideal temperature max (°C)
                   </label>
-                  <input
+                  <Input
                     id="room-temp-max"
                     type="number"
                     step="0.1"
@@ -835,7 +1128,7 @@ function DashboardPage() {
                   <label htmlFor="room-humidity-min" className="text-sm font-medium text-foreground">
                     Ideal humidity min (%)
                   </label>
-                  <input
+                  <Input
                     id="room-humidity-min"
                     type="number"
                     step="0.1"
@@ -848,7 +1141,7 @@ function DashboardPage() {
                   <label htmlFor="room-humidity-max" className="text-sm font-medium text-foreground">
                     Ideal humidity max (%)
                   </label>
-                  <input
+                  <Input
                     id="room-humidity-max"
                     type="number"
                     step="0.1"
@@ -857,17 +1150,17 @@ function DashboardPage() {
                     onChange={(e) => setRoomForm((s) => ({ ...s, ideal_humidity_max: e.target.value }))}
                   />
                 </div>
-                <button
+                <Button
                   type="submit"
                   disabled={savingRoom}
-                  className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-accent sm:col-span-2 disabled:opacity-60"
+                  className="rounded-xl sm:col-span-2"
                 >
                   {savingRoom ? "Saving…" : "Create room"}
-                </button>
+                </Button>
               </form>
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Rooms</h2>
               {state.rooms.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
@@ -876,15 +1169,14 @@ function DashboardPage() {
               ) : (
                 <ul className="mt-4 space-y-3">
                   {state.rooms.map((room) => {
-                    const latest = state.latestByRoom[room.id];
                     const inTempRange =
-                      latest &&
-                      Number(latest.temperature) >= Number(room.ideal_temperature_min) &&
-                      Number(latest.temperature) <= Number(room.ideal_temperature_max);
+                      roomCurrentTemperature !== null &&
+                      Number(roomCurrentTemperature) >= Number(room.ideal_temperature_min) &&
+                      Number(roomCurrentTemperature) <= Number(room.ideal_temperature_max);
                     const inHumidityRange =
-                      latest &&
-                      Number(latest.humidity) >= Number(room.ideal_humidity_min) &&
-                      Number(latest.humidity) <= Number(room.ideal_humidity_max);
+                      roomCurrentHumidity !== null &&
+                      Number(roomCurrentHumidity) >= Number(room.ideal_humidity_min) &&
+                      Number(roomCurrentHumidity) <= Number(room.ideal_humidity_max);
                     const inRange = !!(inTempRange && inHumidityRange);
 
                     return (
@@ -896,24 +1188,227 @@ function DashboardPage() {
                           <div>
                             <p className="font-medium text-foreground">{room.name}</p>
                             <p className="text-xs text-muted-foreground">{room.location ?? "No location"}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {productCountByRoom.get(room.id) ?? 0} product(s)
+                            </p>
                           </div>
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                               inRange
-                                ? "bg-emerald-500/10 text-emerald-600"
-                                : "bg-amber-500/10 text-amber-600"
+                                ? "bg-safe/15 text-safe"
+                                : "bg-warning/20 text-warning-foreground"
                             }`}
                           >
-                            {latest ? (inRange ? "In range" : "Out of range") : "No readings"}
+                            {roomCurrentTemperature !== null && roomCurrentHumidity !== null
+                              ? inRange
+                                ? "In range"
+                                : "Out of range"
+                              : "No weather data"}
                           </span>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                          <p className="text-muted-foreground">
-                            Temp: {latest ? `${Number(latest.temperature).toFixed(1)}°C` : "—"}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-lg"
+                            onClick={() => beginEditRoom(room)}
+                          >
+                            Edit room
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            className="rounded-lg"
+                            disabled={deletingRoomId === room.id}
+                            onClick={() => deleteRoom(room.id)}
+                          >
+                            {deletingRoomId === room.id ? "Deleting…" : "Delete room"}
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Add existing product to this room
+                          </label>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <select
+                              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                              value={existingProductByRoom[room.id] ?? ""}
+                              onChange={(e) =>
+                                setExistingProductByRoom((current) => ({
+                                  ...current,
+                                  [room.id]: e.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Select existing product</option>
+                              {state.products
+                                .filter((product) => product.storage_room_id !== room.id)
+                                .map((product) => (
+                                  <option key={product.id} value={product.id}>
+                                    {product.name} ({roomNameById.get(product.storage_room_id) ?? "Unassigned"})
+                                  </option>
+                                ))}
+                            </select>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="rounded-lg"
+                              disabled={assigningProductRoomId === room.id}
+                              onClick={() => assignExistingProductToRoom(room.id)}
+                            >
+                              {assigningProductRoomId === room.id ? "Assigning…" : "Assign"}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {(productCountByRoom.get(room.id) ?? 0) > 0 && state.rooms.length > 1 ? (
+                          <div className="mt-3 space-y-2">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Move products to room before deleting
+                            </label>
+                            <select
+                              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                              value={moveTargetRoomIdByRoom[room.id] ?? ""}
+                              onChange={(e) =>
+                                setMoveTargetRoomIdByRoom((current) => ({
+                                  ...current,
+                                  [room.id]: e.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Auto select another room</option>
+                              {state.rooms
+                                .filter((targetRoom) => targetRoom.id !== room.id)
+                                .map((targetRoom) => (
+                                  <option key={targetRoom.id} value={targetRoom.id}>
+                                    {targetRoom.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        ) : null}
+
+                        {editingRoomId === room.id ? (
+                          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <Input
+                              value={roomEditForm.name}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({ ...current, name: e.target.value }))
+                              }
+                              placeholder="Room name"
+                            />
+                            <Input
+                              value={roomEditForm.location}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({ ...current, location: e.target.value }))
+                              }
+                              placeholder="Location"
+                            />
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={roomEditForm.ideal_temperature_min}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({
+                                  ...current,
+                                  ideal_temperature_min: e.target.value,
+                                }))
+                              }
+                              placeholder="Temp min"
+                            />
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={roomEditForm.ideal_temperature_max}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({
+                                  ...current,
+                                  ideal_temperature_max: e.target.value,
+                                }))
+                              }
+                              placeholder="Temp max"
+                            />
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={roomEditForm.ideal_humidity_min}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({
+                                  ...current,
+                                  ideal_humidity_min: e.target.value,
+                                }))
+                              }
+                              placeholder="Humidity min"
+                            />
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={roomEditForm.ideal_humidity_max}
+                              onChange={(e) =>
+                                setRoomEditForm((current) => ({
+                                  ...current,
+                                  ideal_humidity_max: e.target.value,
+                                }))
+                              }
+                              placeholder="Humidity max"
+                            />
+                            <div className="sm:col-span-2 flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="rounded-lg"
+                                disabled={updatingRoomId === room.id}
+                                onClick={() => saveRoomEdit(room.id)}
+                              >
+                                {updatingRoomId === room.id ? "Saving…" : "Save changes"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg"
+                                onClick={() => setEditingRoomId(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 rounded-xl border border-border/60 bg-card p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Current conditions
                           </p>
-                          <p className="text-muted-foreground">
-                            Humidity: {latest ? `${Number(latest.humidity).toFixed(1)}%` : "—"}
-                          </p>
+                          {roomCurrentTemperature !== null && roomCurrentHumidity !== null ? (
+                            <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                              <p className="text-foreground">{Number(roomCurrentTemperature).toFixed(1)}°C</p>
+                              <p className="text-foreground">{Number(roomCurrentHumidity).toFixed(1)}%</p>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-sm text-muted-foreground">No current weather data yet.</p>
+                          )}
+                          <p className="mt-2 text-xs text-muted-foreground">Source: Open-Meteo</p>
+
+                          <div className="mt-3 border-t border-border/60 pt-3">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              Configured safe range
+                            </p>
+                            <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground sm:grid-cols-2 sm:gap-3">
+                              <p>
+                                Temperature: {Number(room.ideal_temperature_min).toFixed(1)}°C -{" "}
+                                {Number(room.ideal_temperature_max).toFixed(1)}°C
+                              </p>
+                              <p>
+                                Humidity: {Number(room.ideal_humidity_min).toFixed(1)}% -{" "}
+                                {Number(room.ideal_humidity_max).toFixed(1)}%
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </li>
                     );
@@ -927,7 +1422,7 @@ function DashboardPage() {
           {activeView === "reports" ? (
             <>
               <section id="reports" className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Weather near you</h2>
               {weather.error ? (
                 <p className="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -956,7 +1451,7 @@ function DashboardPage() {
               ) : null}
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Weather sync</h2>
               <p className="mt-4 text-sm text-muted-foreground">
                 Your browser gets the location, sends latitude/longitude to the server, and the server
@@ -998,7 +1493,7 @@ function DashboardPage() {
               </section>
 
               <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Temperature trend</h2>
               {temperatureTrendData.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
@@ -1026,7 +1521,7 @@ function DashboardPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Humidity trend</h2>
               {humidityTrendData.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
@@ -1054,7 +1549,7 @@ function DashboardPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Product categories</h2>
               {state.productCategoryDistribution.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">No product category data available.</p>
@@ -1073,7 +1568,7 @@ function DashboardPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Spoilage risk</h2>
               {state.rooms.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">No monitoring data available yet.</p>
@@ -1113,7 +1608,7 @@ function DashboardPage() {
               </section>
 
               <section className="mt-8">
-            <div className="rounded-3xl border border-border/60 bg-card p-5 shadow-[var(--shadow-soft)]">
+            <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
               <h2 className="text-lg font-semibold text-foreground">Recent readings</h2>
               {state.recentReadings.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">No recent readings available.</p>
@@ -1138,15 +1633,13 @@ function DashboardPage() {
               </section>
             </>
           ) : null}
-        </div>
-      </div>
-    </main>
+    </MainLayout>
   );
 }
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-soft)]">
+    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-md">
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{sub}</p>

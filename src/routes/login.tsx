@@ -3,12 +3,13 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import { AuthLayout } from "@/components/layouts/AuthLayout";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Login — ChillSense" },
-      { name: "description", content: "Sign in to ChillSense." },
+      { title: "Login — FoodSafe Monitor" },
+      { name: "description", content: "Sign in to FoodSafe Monitor." },
     ],
   }),
   component: LoginPage,
@@ -105,16 +106,13 @@ function LoginPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md px-4 pb-20 pt-28 sm:px-6 lg:px-8">
-      <p className="text-sm font-semibold uppercase tracking-wider text-brand">Login</p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Welcome back</h1>
-      <p className="mt-3 text-sm text-muted-foreground">
-        Sign in with email + password, or request a magic link.
-      </p>
-
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in with email and password, or request a magic link."
+    >
       <form
         onSubmit={signInWithPassword}
-        className="mt-8 rounded-3xl border border-border/60 bg-card p-6 shadow-[var(--shadow-soft)]"
+        className="space-y-4"
       >
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">Email</label>
@@ -128,7 +126,7 @@ function LoginPage() {
         </div>
 
         <div className="mt-4 space-y-2">
-          <label className="text-sm font-medium text-foreground">Password (optional)</label>
+          <label className="text-sm font-medium text-foreground">Password</label>
           <Input
             type="password"
             value={password}
@@ -137,17 +135,11 @@ function LoginPage() {
           />
         </div>
 
-        {error ? (
-          <p className="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
-        ) : null}
+        {error ? <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
-        {status ? (
-          <p className="mt-4 text-sm text-muted-foreground">{status}</p>
-        ) : (
-          <div className="mt-4" />
-        )}
+        {status ? <p className="text-sm text-muted-foreground">{status}</p> : <div className="h-5" />}
 
-        <div className="mt-6 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <Button type="submit" className="rounded-xl">
             Sign in
           </Button>
@@ -162,13 +154,13 @@ function LoginPage() {
           </Button>
         </div>
 
-        <p className="mt-6 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Don’t have an account?{" "}
           <Link to="/register" className="text-foreground underline underline-offset-4">
             Register
           </Link>
         </p>
       </form>
-    </main>
+    </AuthLayout>
   );
 }

@@ -66,7 +66,7 @@ export function Hero() {
             <div className="overflow-hidden rounded-3xl border border-border/60 bg-card shadow-[var(--shadow-elevated)]">
               <img
                 src={dashboardPreview}
-                alt="ChillSense dashboard preview"
+                alt="FoodSafe Monitor dashboard preview"
                 className="h-auto w-full"
                 loading="eager"
                 decoding="async"

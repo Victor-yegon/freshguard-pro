@@ -1,8 +1,7 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
-import { Navbar } from "@/components/site/Navbar";
-import { Footer } from "@/components/site/Footer";
 
 import appCss from "../styles.css?url";
+import favicon from "@/assets/favicon.svg";
 
 function NotFoundComponent() {
   return (
@@ -31,19 +30,24 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "FoodSafe Monitor" },
+      { name: "description", content: "Smart food storage monitoring system." },
+      { name: "author", content: "FoodSafe Monitor" },
+      { property: "og:title", content: "FoodSafe Monitor" },
+      { property: "og:description", content: "Smart food storage monitoring system." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@foodsafemonitor" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      {
+        rel: "icon",
+        type: "image/svg+xml",
+        href: favicon,
       },
     ],
   }),
@@ -69,9 +73,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   return (
     <div className="min-h-screen bg-background text-foreground antialiased">
-      <Navbar />
       <Outlet />
-      <Footer />
     </div>
   );
 }

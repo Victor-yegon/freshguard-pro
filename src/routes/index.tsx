@@ -5,19 +5,20 @@ import { HowItWorks } from "@/components/site/HowItWorks";
 import { DashboardPreview } from "@/components/site/DashboardPreview";
 import { Benefits } from "@/components/site/Benefits";
 import { CtaSection } from "@/components/site/CtaSection";
+import { PublicLayout } from "@/components/layouts/PublicLayout";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ChillSense — Smart Monitoring for Safer Food Storage" },
+      { title: "FoodSafe Monitor — Smart Monitoring for Safer Food Storage" },
       {
         name: "description",
         content:
-          "Track temperature, prevent spoilage and protect inventory in real-time with ChillSense smart food storage monitoring.",
+          "Track temperature, prevent spoilage and protect inventory in real-time with FoodSafe Monitor smart food storage monitoring.",
       },
       {
         property: "og:title",
-        content: "ChillSense — Smart Monitoring for Safer Food Storage",
+        content: "FoodSafe Monitor — Smart Monitoring for Safer Food Storage",
       },
       {
         property: "og:description",
@@ -31,13 +32,13 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   return (
-    <main>
+    <PublicLayout>
       <Hero />
       <Features />
       <HowItWorks />
       <DashboardPreview />
       <Benefits />
       <CtaSection />
-    </main>
+    </PublicLayout>
   );
 }

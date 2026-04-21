@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS storage_rooms (
 -- =========================
 CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    storage_room_id UUID REFERENCES storage_rooms(id) ON DELETE CASCADE,
+    storage_room_id UUID REFERENCES storage_rooms(id) ON DELETE SET NULL,
     name VARCHAR(150) NOT NULL,
     category VARCHAR(100),
     quantity INT DEFAULT 1,
@@ -128,6 +128,26 @@ CREATE INDEX IF NOT EXISTS idx_alert_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS idx_weather_user_recorded ON weather_history(user_id, recorded_at);
 
 -- =========================
+-- FK ALIGNMENT: KEEP PRODUCTS WHEN ROOM IS DELETED
+-- =========================
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints tc
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+            AND tc.table_name = 'products'
+            AND tc.constraint_name = 'products_storage_room_id_fkey'
+    ) THEN
+        ALTER TABLE products DROP CONSTRAINT products_storage_room_id_fkey;
+    END IF;
+
+    ALTER TABLE products
+        ADD CONSTRAINT products_storage_room_id_fkey
+        FOREIGN KEY (storage_room_id) REFERENCES storage_rooms(id) ON DELETE SET NULL;
+END $$;
+
+-- =========================
 -- RLS POLICIES (SUPABASE)
 -- =========================
 -- Run these in Supabase SQL Editor if RLS is enabled and inserts/selects are blocked.
@@ -178,6 +198,73 @@ CREATE POLICY storage_rooms_delete_own ON storage_rooms
 FOR DELETE
 TO authenticated
 USING (user_id = auth.uid());
+
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS products_select_own ON products;
+CREATE POLICY products_select_own ON products
+FOR SELECT
+TO authenticated
+USING (
+    storage_room_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM storage_rooms
+        WHERE storage_rooms.id = products.storage_room_id
+            AND storage_rooms.user_id = auth.uid()
+    )
+);
+
+DROP POLICY IF EXISTS products_insert_own ON products;
+CREATE POLICY products_insert_own ON products
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    storage_room_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM storage_rooms
+        WHERE storage_rooms.id = products.storage_room_id
+            AND storage_rooms.user_id = auth.uid()
+    )
+);
+
+DROP POLICY IF EXISTS products_update_own ON products;
+CREATE POLICY products_update_own ON products
+FOR UPDATE
+TO authenticated
+USING (
+    storage_room_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM storage_rooms
+        WHERE storage_rooms.id = products.storage_room_id
+            AND storage_rooms.user_id = auth.uid()
+    )
+)
+WITH CHECK (
+    storage_room_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM storage_rooms
+        WHERE storage_rooms.id = products.storage_room_id
+            AND storage_rooms.user_id = auth.uid()
+    )
+);
+
+DROP POLICY IF EXISTS products_delete_own ON products;
+CREATE POLICY products_delete_own ON products
+FOR DELETE
+TO authenticated
+USING (
+    storage_room_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM storage_rooms
+        WHERE storage_rooms.id = products.storage_room_id
+            AND storage_rooms.user_id = auth.uid()
+    )
+);
 
 ALTER TABLE sensor_readings ENABLE ROW LEVEL SECURITY;
 

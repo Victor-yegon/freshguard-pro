@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Menu, X, Snowflake } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import logo from "@/assets/logo.svg";
 
 const links = [
   { label: "Home", to: "/" },
@@ -60,14 +61,19 @@ export function Navbar() {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link to="/" className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-glow)]">
-            <Snowflake className="h-5 w-5" />
-          </span>
-          <span className="text-lg font-semibold tracking-tight text-foreground">ChillSense</span>
+        <Link to="/" className="flex items-center">
+          <img src={logo} alt="FoodSafe Monitor" className="h-12 w-auto object-contain" />
         </Link>
 
         <nav className="hidden items-center gap-8 md:flex">
+          {isSignedIn ? (
+            <Link
+              to="/dashboard"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Dashboard
+            </Link>
+          ) : null}
           {links.map((l) => (
             <Link
               key={l.to}
@@ -108,6 +114,15 @@ export function Navbar() {
       {open && (
         <div className="border-t border-border/60 bg-background/95 backdrop-blur-xl md:hidden">
           <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-4">
+            {isSignedIn ? (
+              <Link
+                to="/dashboard"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
+              >
+                Dashboard
+              </Link>
+            ) : null}
             {links.map((l) => (
               <Link
                 key={l.to}
