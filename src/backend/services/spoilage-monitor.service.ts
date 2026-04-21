@@ -37,6 +37,12 @@ type User = {
 
 type NotificationSetting = {
   email: string;
+  last_digest_sent_at: string | null;
+  last_scan_at: string | null;
+};
+
+type NotificationSettingLite = {
+  email: string;
 };
 
 type ExistingActiveAlert = {
@@ -65,10 +71,20 @@ export type SpoilageMonitorResult = {
 };
 
 const ALERT_REMINDER_COOLDOWN_MINUTES = 30;
+const DIGEST_EMAIL_COOLDOWN_MINUTES = 10;
+const SCAN_INTERVAL_MINUTES = 20;
+const lastDigestSentAtFallbackByUser = new Map<string, string>();
+const lastScanAtFallbackByUser = new Map<string, string>();
 
-export async function runSpoilagePrevention(userId: string): Promise<SpoilageMonitorResult> {
+export async function runSpoilagePrevention(
+  userId: string,
+  options?: { force?: boolean },
+): Promise<SpoilageMonitorResult> {
   const supabase = getSupabaseAdminClient();
   console.log(`[Spoilage Monitor] Starting scan for user: ${userId}`);
+
+  const force = options?.force ?? false;
+  const nowIso = new Date().toISOString();
 
   const [{ data: user, error: userError }, { data: rooms, error: roomsError }, { data: weather, error: weatherError }] =
     await Promise.all([
@@ -109,18 +125,77 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
     return emptyResult();
   }
 
-  let notificationEmail = user?.email ?? process.env.GMAIL_USER ?? "";
-  const { data: notificationSetting, error: notificationSettingError } = await supabase
+  let notificationEmail = "";
+  let notificationSetting: NotificationSetting | null = null;
+  let supportsDigestTimestampColumn = true;
+  let supportsScanTimestampColumn = true;
+
+  const { data: notificationSettingWithDigest, error: notificationSettingWithDigestError } = await supabase
     .from("alert_notification_settings")
-    .select("email")
+    .select("email, last_digest_sent_at, last_scan_at")
     .eq("user_id", userId)
     .maybeSingle<NotificationSetting>();
 
-  if (!notificationSettingError && notificationSetting?.email) {
-    notificationEmail = notificationSetting.email;
-    console.log(`[Spoilage Monitor] Using custom notification email: ${notificationEmail}`);
+  if (!notificationSettingWithDigestError) {
+    notificationSetting = notificationSettingWithDigest ?? null;
+  } else if (
+    notificationSettingWithDigestError.message.includes("last_digest_sent_at") ||
+    notificationSettingWithDigestError.message.includes("last_scan_at")
+  ) {
+    supportsDigestTimestampColumn = !notificationSettingWithDigestError.message.includes("last_digest_sent_at");
+    supportsScanTimestampColumn = !notificationSettingWithDigestError.message.includes("last_scan_at");
+    const { data: notificationSettingWithoutDigest, error: notificationSettingWithoutDigestError } = await supabase
+      .from("alert_notification_settings")
+      .select("email")
+      .eq("user_id", userId)
+      .maybeSingle<NotificationSettingLite>();
+
+    if (notificationSettingWithoutDigestError) {
+      throw new Error(notificationSettingWithoutDigestError.message);
+    }
+
+    notificationSetting = notificationSettingWithoutDigest
+      ? { email: notificationSettingWithoutDigest.email, last_digest_sent_at: null, last_scan_at: null }
+      : null;
   } else {
-    console.log(`[Spoilage Monitor] Using fallback email: ${notificationEmail}`);
+    throw new Error(notificationSettingWithDigestError.message);
+  }
+
+  const persistedLastScanAt = notificationSetting?.last_scan_at ?? null;
+  const fallbackLastScanAt = lastScanAtFallbackByUser.get(userId) ?? null;
+  const lastScanAt = supportsScanTimestampColumn ? persistedLastScanAt : fallbackLastScanAt;
+  if (!force && lastScanAt) {
+    const minutesSinceLastScan = minutesBetween(lastScanAt, nowIso);
+    if (minutesSinceLastScan < SCAN_INTERVAL_MINUTES) {
+      console.log(
+        `[Spoilage Monitor] Scan skipped due to interval throttle (${minutesSinceLastScan.toFixed(1)}m < ${SCAN_INTERVAL_MINUTES}m).`,
+      );
+      return emptyResult();
+    }
+  }
+
+  if (supportsScanTimestampColumn) {
+    const { error: scanStampError } = await supabase
+      .from("alert_notification_settings")
+      .upsert({
+        user_id: userId,
+        email: notificationSetting?.email?.trim() || notificationEmail || user?.email || "",
+        last_scan_at: nowIso,
+        updated_at: nowIso,
+      });
+
+    if (scanStampError) {
+      console.error("[Spoilage Monitor] Failed to persist scan timestamp:", scanStampError);
+    }
+  } else {
+    lastScanAtFallbackByUser.set(userId, nowIso);
+  }
+
+  if (notificationSetting?.email?.trim()) {
+    notificationEmail = notificationSetting.email.trim();
+    console.log(`[Spoilage Monitor] Using notification email: ${notificationEmail}`);
+  } else {
+    console.log("[Spoilage Monitor] No notification email configured. Digest emails are disabled.");
   }
 
   const latestWeather = weather?.[0];
@@ -347,18 +422,44 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
     }
   }
 
-  if (digestItems.length > 0) {
+  if (digestItems.length > 0 && notificationEmail) {
+    const nowIso = new Date().toISOString();
+    const fallbackLastDigest = lastDigestSentAtFallbackByUser.get(userId) ?? null;
+    const lastDigestSentAt = supportsDigestTimestampColumn
+      ? (notificationSetting?.last_digest_sent_at ?? null)
+      : fallbackLastDigest;
+    const minutesSinceLastDigest = lastDigestSentAt ? minutesBetween(lastDigestSentAt, nowIso) : Number.POSITIVE_INFINITY;
+
+    if (minutesSinceLastDigest < DIGEST_EMAIL_COOLDOWN_MINUTES) {
+      console.log(
+        `[Spoilage Monitor] Digest email skipped due to cooldown (${minutesSinceLastDigest.toFixed(1)}m < ${DIGEST_EMAIL_COOLDOWN_MINUTES}m).`,
+      );
+    } else {
     try {
       await sendSpoilageRiskDigestEmail({
-        to: notificationEmail || user?.email || process.env.GMAIL_USER || "",
-        timestampIso: new Date().toISOString(),
+        to: notificationEmail,
+        timestampIso: nowIso,
         items: digestItems,
       });
+
+      if (supportsDigestTimestampColumn) {
+        const { error: digestStampError } = await supabase
+          .from("alert_notification_settings")
+          .update({ last_digest_sent_at: nowIso, updated_at: nowIso })
+          .eq("user_id", userId);
+
+        if (digestStampError) {
+          console.error("[Spoilage Monitor] Failed to persist digest timestamp:", digestStampError);
+        }
+      } else {
+        lastDigestSentAtFallbackByUser.set(userId, nowIso);
+      }
     } catch (emailError) {
       console.error(
         `Failed to send spoilage alert digest email to ${notificationEmail}:`,
         emailError,
       );
+    }
     }
   }
 

@@ -109,49 +109,71 @@ export async function sendSpoilageRiskDigestEmail(input: {
   }
 
   const { gmailUser, transporter } = getMailConfig();
-  const subject = `🚨 Food Spoilage Risk Digest (${input.items.length} alert${input.items.length === 1 ? "" : "s"})`;
+  const groupedByRoom = new Map<string, SpoilageAlertDigestItem[]>();
+  for (const item of input.items) {
+    const current = groupedByRoom.get(item.currentRoomName) ?? [];
+    current.push(item);
+    groupedByRoom.set(item.currentRoomName, current);
+  }
+
+  const roomCount = groupedByRoom.size;
+  const subject = `🚨 Food Spoilage Risk Digest (${roomCount} room${roomCount === 1 ? "" : "s"}, ${input.items.length} alert${input.items.length === 1 ? "" : "s"})`;
 
   const textLines: string[] = [
     "Food Spoilage Risk Digest",
     "",
-    `Detected ${input.items.length} spoilage alert${input.items.length === 1 ? "" : "s"}.`,
+    `Detected ${input.items.length} spoilage alert${input.items.length === 1 ? "" : "s"} across ${roomCount} room${roomCount === 1 ? "" : "s"}.`,
     `Timestamp: ${new Date(input.timestampIso).toLocaleString()}`,
     "",
   ];
 
-  for (const [index, item] of input.items.entries()) {
-    textLines.push(
-      `${index + 1}. ${item.productName} (${item.currentRoomName})`,
-      `   Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%`,
-      `   Safe Temp: ${item.safeTempRange}`,
-      `   Safe Humidity: ${item.safeHumidityRange}`,
-      `   Problem: ${item.problem}`,
-      `   Action: ${item.actionTaken}`,
-      "",
-    );
-  }
+  const textRoomSections: string[] = [];
+  const htmlRoomSections: string[] = [];
+  let itemIndex = 1;
 
-  const htmlItems = input.items
-    .map(
-      (item, index) => `
-      <li style="margin-bottom: 12px;">
-        <strong>${index + 1}. ${escapeHtml(item.productName)}</strong>
-        <div>Room: ${escapeHtml(item.currentRoomName)}</div>
-        <div>Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%</div>
-        <div>Safe Temp: ${escapeHtml(item.safeTempRange)}</div>
-        <div>Safe Humidity: ${escapeHtml(item.safeHumidityRange)}</div>
-        <div>Problem: ${escapeHtml(item.problem)}</div>
-        <div>Action: ${escapeHtml(item.actionTaken)}</div>
-      </li>
-    `,
-    )
-    .join("");
+  for (const [roomName, roomItems] of groupedByRoom.entries()) {
+    textRoomSections.push(`Room: ${roomName}`);
+    for (const item of roomItems) {
+      textRoomSections.push(
+        `  ${itemIndex}. ${item.productName}`,
+        `     Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%`,
+        `     Safe Temp: ${item.safeTempRange}`,
+        `     Safe Humidity: ${item.safeHumidityRange}`,
+        `     Problem: ${item.problem}`,
+        `     Action: ${item.actionTaken}`,
+      );
+      itemIndex += 1;
+    }
+    textRoomSections.push("");
+
+    const roomHtmlItems = roomItems
+      .map(
+        (item) => `
+          <li style="margin-bottom: 10px;">
+            <strong>${escapeHtml(item.productName)}</strong>
+            <div>Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%</div>
+            <div>Safe Temp: ${escapeHtml(item.safeTempRange)}</div>
+            <div>Safe Humidity: ${escapeHtml(item.safeHumidityRange)}</div>
+            <div>Problem: ${escapeHtml(item.problem)}</div>
+            <div>Action: ${escapeHtml(item.actionTaken)}</div>
+          </li>
+        `,
+      )
+      .join("");
+
+    htmlRoomSections.push(`
+      <section style="margin-top: 16px;">
+        <h3 style="margin-bottom: 8px;">Room: ${escapeHtml(roomName)}</h3>
+        <ol style="padding-left: 20px; margin: 0;">${roomHtmlItems}</ol>
+      </section>
+    `);
+  }
 
   const html = `
     <h2>🚨 Food Spoilage Risk Digest</h2>
-    <p>Detected <strong>${input.items.length}</strong> spoilage alert${input.items.length === 1 ? "" : "s"}.</p>
+    <p>Detected <strong>${input.items.length}</strong> spoilage alert${input.items.length === 1 ? "" : "s"} across <strong>${roomCount}</strong> room${roomCount === 1 ? "" : "s"}.</p>
     <p><strong>Timestamp:</strong> ${escapeHtml(new Date(input.timestampIso).toLocaleString())}</p>
-    <ol>${htmlItems}</ol>
+    ${htmlRoomSections.join("")}
   `;
 
   try {
@@ -159,7 +181,7 @@ export async function sendSpoilageRiskDigestEmail(input: {
       from: `FoodSafe Monitor <${gmailUser}>`,
       to: input.to,
       subject,
-      text: textLines.join("\n"),
+      text: [...textLines, ...textRoomSections].join("\n"),
       html,
     });
     console.log(`Digest email sent successfully to ${input.to}. Response ID: ${info.response}`);

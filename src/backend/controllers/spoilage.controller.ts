@@ -3,6 +3,7 @@ import { runSpoilagePrevention } from "@/backend/services/spoilage-monitor.servi
 
 const SpoilageControllerInputSchema = z.object({
   userId: z.string().uuid(),
+  force: z.boolean().optional(),
 });
 
 export async function runSpoilagePreventionController(input: unknown) {
@@ -10,7 +11,7 @@ export async function runSpoilagePreventionController(input: unknown) {
     const parsed = SpoilageControllerInputSchema.parse(input);
     console.log(`[Spoilage Controller] Processing request for user: ${parsed.userId}`);
     
-    const result = await runSpoilagePrevention(parsed.userId);
+    const result = await runSpoilagePrevention(parsed.userId, { force: parsed.force ?? false });
 
     console.log(`[Spoilage Controller] Scan completed successfully:`, result);
     

@@ -4,6 +4,7 @@ import { runSpoilagePreventionController } from "@/backend/controllers/spoilage.
 
 const SpoilageInputSchema = z.object({
   userId: z.string().uuid(),
+  force: z.boolean().optional(),
 });
 
 export const runSpoilagePreventionScan = createServerFn({ method: "POST" })

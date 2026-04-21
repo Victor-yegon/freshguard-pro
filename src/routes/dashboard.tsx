@@ -235,7 +235,7 @@ function DashboardPage() {
   const [savingNotificationEmail, setSavingNotificationEmail] = React.useState(false);
   const scanInProgressRef = React.useRef(false);
 
-  const triggerSpoilageScan = React.useCallback(async () => {
+  const triggerSpoilageScan = React.useCallback(async (force = false) => {
     if (scanInProgressRef.current) {
       return;
     }
@@ -251,7 +251,7 @@ function DashboardPage() {
         return;
       }
 
-      await runSpoilagePreventionScan({ data: { userId: session.user.id } });
+      await runSpoilagePreventionScan({ data: { userId: session.user.id, force } });
     } catch (scanError) {
       console.error("[Dashboard] Spoilage scan failed:", scanError);
     } finally {
@@ -466,7 +466,7 @@ function DashboardPage() {
           throw new Error(settingsError.message);
         }
 
-        setNotificationEmail(data?.email ?? session.user.email ?? "");
+        setNotificationEmail(data?.email ?? "");
       } catch (e) {
         if (!active) return;
         setNotificationEmailStatus({
@@ -534,9 +534,6 @@ function DashboardPage() {
           return next.slice(-24);
         });
 
-        if (session?.user.id) {
-          triggerSpoilageScan();
-        }
       } catch (e) {
         setWeather((current) => ({
           ...current,
@@ -574,8 +571,8 @@ function DashboardPage() {
 
   React.useEffect(() => {
     const intervalId = window.setInterval(() => {
-      triggerSpoilageScan();
-    }, 2 * 60 * 1000);
+      triggerSpoilageScan(false);
+    }, 20 * 60 * 1000);
 
     return () => {
       window.clearInterval(intervalId);
@@ -615,7 +612,7 @@ function DashboardPage() {
       setActionMessage("Storage room created.");
       setRoomForm((current) => ({ ...current, name: "", location: "" }));
       await loadDashboard();
-      await triggerSpoilageScan();
+      await triggerSpoilageScan(true);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to create storage room.");
     } finally {
@@ -649,7 +646,6 @@ function DashboardPage() {
       setActionMessage("Product created.");
       setProductForm((current) => ({ ...current, name: "", quantity: "1" }));
       await loadDashboard();
-      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to create product.");
     } finally {
@@ -695,7 +691,7 @@ function DashboardPage() {
       setActionMessage("Room updated.");
       setEditingRoomId(null);
       await loadDashboard();
-      await triggerSpoilageScan();
+      await triggerSpoilageScan(true);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to update room.");
     } finally {
@@ -727,7 +723,6 @@ function DashboardPage() {
       setActionMessage("Product assigned to room.");
       setExistingProductByRoom((current) => ({ ...current, [roomId]: "" }));
       await loadDashboard();
-      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to assign product to room.");
     } finally {
@@ -778,7 +773,7 @@ function DashboardPage() {
         setEditingRoomId(null);
       }
       await loadDashboard();
-      await triggerSpoilageScan();
+      await triggerSpoilageScan(true);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to delete room.");
     } finally {
