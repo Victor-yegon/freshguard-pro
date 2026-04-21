@@ -15,12 +15,25 @@ export type SpoilageAlertEmailInput = {
   timestampIso: string;
 };
 
-export async function sendSpoilageRiskEmail(input: SpoilageAlertEmailInput) {
+export type SpoilageAlertDigestItem = {
+  productName: string;
+  currentRoomName: string;
+  currentTemperature: number;
+  currentHumidity: number;
+  safeTempRange: string;
+  safeHumidityRange: string;
+  problem: string;
+  actionTaken: string;
+};
+
+function getMailConfig() {
   const gmailUser = process.env.GMAIL_USER;
   const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
 
   if (!gmailUser || !gmailAppPassword) {
-    throw new Error("Email delivery is not configured. Missing Gmail credentials on server.");
+    throw new Error(
+      `Email delivery is not configured. Missing Gmail credentials on server. User: ${gmailUser ? "set" : "missing"}, Password: ${gmailAppPassword ? "set" : "missing"}`,
+    );
   }
 
   const transporter = nodemailer.createTransport({
@@ -30,6 +43,12 @@ export async function sendSpoilageRiskEmail(input: SpoilageAlertEmailInput) {
       pass: gmailAppPassword,
     },
   });
+
+  return { gmailUser, transporter };
+}
+
+export async function sendSpoilageRiskEmail(input: SpoilageAlertEmailInput) {
+  const { gmailUser, transporter } = getMailConfig();
 
   const subject = "🚨 Food Spoilage Risk Detected";
 
@@ -64,13 +83,91 @@ export async function sendSpoilageRiskEmail(input: SpoilageAlertEmailInput) {
     <p><strong>Timestamp:</strong> ${escapeHtml(new Date(input.timestampIso).toLocaleString())}</p>
   `;
 
-  await transporter.sendMail({
-    from: `FoodSafe Monitor <${gmailUser}>`,
-    to: input.to,
-    subject,
-    text,
-    html,
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: `FoodSafe Monitor <${gmailUser}>`,
+      to: input.to,
+      subject,
+      text,
+      html,
+    });
+    console.log(`Email sent successfully to ${input.to}. Response ID: ${info.response}`);
+    return info;
+  } catch (error) {
+    console.error(`Failed to send email to ${input.to}:`, error);
+    throw error;
+  }
+}
+
+export async function sendSpoilageRiskDigestEmail(input: {
+  to: string;
+  timestampIso: string;
+  items: SpoilageAlertDigestItem[];
+}) {
+  if (input.items.length === 0) {
+    return;
+  }
+
+  const { gmailUser, transporter } = getMailConfig();
+  const subject = `🚨 Food Spoilage Risk Digest (${input.items.length} alert${input.items.length === 1 ? "" : "s"})`;
+
+  const textLines: string[] = [
+    "Food Spoilage Risk Digest",
+    "",
+    `Detected ${input.items.length} spoilage alert${input.items.length === 1 ? "" : "s"}.`,
+    `Timestamp: ${new Date(input.timestampIso).toLocaleString()}`,
+    "",
+  ];
+
+  for (const [index, item] of input.items.entries()) {
+    textLines.push(
+      `${index + 1}. ${item.productName} (${item.currentRoomName})`,
+      `   Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%`,
+      `   Safe Temp: ${item.safeTempRange}`,
+      `   Safe Humidity: ${item.safeHumidityRange}`,
+      `   Problem: ${item.problem}`,
+      `   Action: ${item.actionTaken}`,
+      "",
+    );
+  }
+
+  const htmlItems = input.items
+    .map(
+      (item, index) => `
+      <li style="margin-bottom: 12px;">
+        <strong>${index + 1}. ${escapeHtml(item.productName)}</strong>
+        <div>Room: ${escapeHtml(item.currentRoomName)}</div>
+        <div>Current: ${item.currentTemperature.toFixed(1)}°C, ${item.currentHumidity.toFixed(1)}%</div>
+        <div>Safe Temp: ${escapeHtml(item.safeTempRange)}</div>
+        <div>Safe Humidity: ${escapeHtml(item.safeHumidityRange)}</div>
+        <div>Problem: ${escapeHtml(item.problem)}</div>
+        <div>Action: ${escapeHtml(item.actionTaken)}</div>
+      </li>
+    `,
+    )
+    .join("");
+
+  const html = `
+    <h2>🚨 Food Spoilage Risk Digest</h2>
+    <p>Detected <strong>${input.items.length}</strong> spoilage alert${input.items.length === 1 ? "" : "s"}.</p>
+    <p><strong>Timestamp:</strong> ${escapeHtml(new Date(input.timestampIso).toLocaleString())}</p>
+    <ol>${htmlItems}</ol>
+  `;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `FoodSafe Monitor <${gmailUser}>`,
+      to: input.to,
+      subject,
+      text: textLines.join("\n"),
+      html,
+    });
+    console.log(`Digest email sent successfully to ${input.to}. Response ID: ${info.response}`);
+    return info;
+  } catch (error) {
+    console.error(`Failed to send digest email to ${input.to}:`, error);
+    throw error;
+  }
 }
 
 function escapeHtml(value: string) {

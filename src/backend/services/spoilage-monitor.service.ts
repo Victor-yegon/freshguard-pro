@@ -1,5 +1,8 @@
 import { getSupabaseAdminClient } from "@/backend/services/supabase-admin.service";
-import { sendSpoilageRiskEmail } from "@/backend/services/spoilage-alert-email.service";
+import {
+  sendSpoilageRiskDigestEmail,
+  type SpoilageAlertDigestItem,
+} from "@/backend/services/spoilage-alert-email.service";
 
 type StorageRoom = {
   id: string;
@@ -36,6 +39,12 @@ type NotificationSetting = {
   email: string;
 };
 
+type ExistingActiveAlert = {
+  id: string;
+  product_id: string | null;
+  created_at: string;
+};
+
 type AlertInsert = {
   storage_room_id: string;
   product_id: string | null;
@@ -55,8 +64,11 @@ export type SpoilageMonitorResult = {
   alertsSent: number;
 };
 
+const ALERT_REMINDER_COOLDOWN_MINUTES = 30;
+
 export async function runSpoilagePrevention(userId: string): Promise<SpoilageMonitorResult> {
   const supabase = getSupabaseAdminClient();
+  console.log(`[Spoilage Monitor] Starting scan for user: ${userId}`);
 
   const [{ data: user, error: userError }, { data: rooms, error: roomsError }, { data: weather, error: weatherError }] =
     await Promise.all([
@@ -78,17 +90,22 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
     ]);
 
   if (userError) {
-    throw new Error(userError.message);
+    console.error(`[Spoilage Monitor] User fetch error:`, userError);
+    throw new Error(`Failed to fetch user: ${userError.message}`);
   }
   if (roomsError) {
-    throw new Error(roomsError.message);
+    console.error(`[Spoilage Monitor] Rooms fetch error:`, roomsError);
+    throw new Error(`Failed to fetch storage rooms: ${roomsError.message}`);
   }
   if (weatherError) {
-    throw new Error(weatherError.message);
+    console.error(`[Spoilage Monitor] Weather fetch error:`, weatherError);
+    throw new Error(`Failed to fetch weather history: ${weatherError.message}`);
   }
 
   const allRooms = rooms ?? [];
+  console.log(`[Spoilage Monitor] Found ${allRooms.length} rooms for user`);
   if (allRooms.length === 0) {
+    console.log(`[Spoilage Monitor] No rooms found, skipping scan`);
     return emptyResult();
   }
 
@@ -101,13 +118,19 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
 
   if (!notificationSettingError && notificationSetting?.email) {
     notificationEmail = notificationSetting.email;
+    console.log(`[Spoilage Monitor] Using custom notification email: ${notificationEmail}`);
+  } else {
+    console.log(`[Spoilage Monitor] Using fallback email: ${notificationEmail}`);
   }
 
   const latestWeather = weather?.[0];
   const currentTemp = latestWeather?.temperature;
   const currentHumidity = latestWeather?.humidity;
 
+  console.log(`[Spoilage Monitor] Current conditions - Temp: ${currentTemp}°C, Humidity: ${currentHumidity}%`);
+
   if (currentTemp === null || currentTemp === undefined || currentHumidity === null || currentHumidity === undefined) {
+    console.log(`[Spoilage Monitor] No weather data available, skipping scan`);
     return emptyResult();
   }
 
@@ -127,6 +150,30 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
   let movedProducts = 0;
   let unresolvedProducts = 0;
   let alertsSent = 0;
+  const digestItems: SpoilageAlertDigestItem[] = [];
+
+  const productIds = (products ?? []).map((product) => product.id);
+  const existingActiveAlertByProductId = new Map<string, ExistingActiveAlert>();
+  if (productIds.length > 0) {
+    const { data: existingActiveAlerts, error: existingActiveAlertsError } = await supabase
+      .from("alerts")
+      .select("id, product_id, created_at")
+      .in("product_id", productIds)
+      .eq("status", "ACTIVE")
+      .eq("source", "SIMULATION")
+      .order("created_at", { ascending: false })
+      .returns<ExistingActiveAlert[]>();
+
+    if (existingActiveAlertsError) {
+      throw new Error(existingActiveAlertsError.message);
+    }
+
+    for (const alert of existingActiveAlerts ?? []) {
+      if (alert.product_id && !existingActiveAlertByProductId.has(alert.product_id)) {
+        existingActiveAlertByProductId.set(alert.product_id, alert);
+      }
+    }
+  }
 
   for (const room of allRooms) {
     const roomUnsafe = isOutOfRange({
@@ -138,11 +185,10 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
       maxHumidity: room.ideal_humidity_max,
     });
 
-    if (!roomUnsafe) {
-      continue;
+    if (roomUnsafe) {
+      affectedRooms += 1;
     }
 
-    affectedRooms += 1;
     const productsInRoom = (products ?? []).filter((product) => product.storage_room_id === room.id);
 
     for (const product of productsInRoom) {
@@ -163,6 +209,19 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
       });
 
       if (!productUnsafe) {
+        const existingActiveAlert = existingActiveAlertByProductId.get(product.id);
+        if (existingActiveAlert) {
+          const resolveResult = await supabase
+            .from("alerts")
+            .update({ status: "RESOLVED" })
+            .eq("id", existingActiveAlert.id);
+
+          if (resolveResult.error) {
+            throw new Error(resolveResult.error.message);
+          }
+
+          existingActiveAlertByProductId.delete(product.id);
+        }
         continue;
       }
 
@@ -218,6 +277,28 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
         maxHumidity,
       });
       const alertStatus: AlertInsert["status"] = actionTaken.startsWith("AUTO_MOVED") ? "RESOLVED" : "ACTIVE";
+
+      const existingActiveAlert = existingActiveAlertByProductId.get(product.id);
+      if (existingActiveAlert && alertStatus === "ACTIVE") {
+        const minutesSinceLastAlert = minutesBetween(existingActiveAlert.created_at, new Date().toISOString());
+        if (minutesSinceLastAlert < ALERT_REMINDER_COOLDOWN_MINUTES) {
+          continue;
+        }
+      }
+
+      if (existingActiveAlert && alertStatus === "RESOLVED") {
+        const resolveResult = await supabase
+          .from("alerts")
+          .update({ status: "RESOLVED" })
+          .eq("id", existingActiveAlert.id);
+
+        if (resolveResult.error) {
+          throw new Error(resolveResult.error.message);
+        }
+
+        existingActiveAlertByProductId.delete(product.id);
+      }
+
       const safeRangeLabel = `Temp ${minTemp.toFixed(1)}\u00B0C-${maxTemp.toFixed(1)}\u00B0C, Humidity ${minHumidity.toFixed(1)}%-${maxHumidity.toFixed(1)}%`;
       const alertMessage = [
         `Food spoilage risk detected for ${product.name}.`,
@@ -241,11 +322,15 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
       } satisfies AlertInsert);
 
       if (alertInsertError) {
-        throw new Error(alertInsertError.message);
+        console.error(
+          `[Spoilage Monitor] Failed to insert alert for product ${product.name}:`,
+          alertInsertError,
+        );
+        throw new Error(`Failed to create alert: ${alertInsertError.message}`);
       }
 
-      await sendSpoilageRiskEmail({
-        to: notificationEmail || user?.email || process.env.GMAIL_USER || "",
+      console.log(`[Spoilage Monitor] Alert created for product: ${product.name}`);
+      digestItems.push({
         productName: product.name,
         currentRoomName: room.name,
         currentTemperature: currentTemp,
@@ -253,19 +338,31 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
         safeTempRange: `${minTemp.toFixed(1)}\u00B0C - ${maxTemp.toFixed(1)}\u00B0C`,
         safeHumidityRange: `${minHumidity.toFixed(1)}% - ${maxHumidity.toFixed(1)}%`,
         problem: issueSummary.problem,
-        riskExplanation: issueSummary.riskExplanation,
-        recommendation,
         actionTaken:
           actionTaken.startsWith("AUTO_MOVED")
             ? `Product automatically moved to ${targetRoom?.name}`
             : "No suitable room available",
-        timestampIso: new Date().toISOString(),
       });
       alertsSent += 1;
     }
   }
 
-  return {
+  if (digestItems.length > 0) {
+    try {
+      await sendSpoilageRiskDigestEmail({
+        to: notificationEmail || user?.email || process.env.GMAIL_USER || "",
+        timestampIso: new Date().toISOString(),
+        items: digestItems,
+      });
+    } catch (emailError) {
+      console.error(
+        `Failed to send spoilage alert digest email to ${notificationEmail}:`,
+        emailError,
+      );
+    }
+  }
+
+  const result = {
     evaluatedRooms: allRooms.length,
     affectedRooms,
     evaluatedProducts,
@@ -273,6 +370,9 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
     unresolvedProducts,
     alertsSent,
   };
+
+  console.log(`[Spoilage Monitor] Scan complete - Alerts sent: ${alertsSent}, Rooms affected: ${affectedRooms}`);
+  return result;
 }
 
 function isOutOfRange(params: {
@@ -347,6 +447,17 @@ function getRangeDeviation(value: number, min: number, max: number) {
   if (value < min) return min - value;
   if (value > max) return value - max;
   return 0;
+}
+
+function minutesBetween(olderIso: string, newerIso: string) {
+  const older = new Date(olderIso).getTime();
+  const newer = new Date(newerIso).getTime();
+
+  if (!Number.isFinite(older) || !Number.isFinite(newer)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(0, (newer - older) / (1000 * 60));
 }
 
 function emptyResult(): SpoilageMonitorResult {

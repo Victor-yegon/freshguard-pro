@@ -233,6 +233,31 @@ function DashboardPage() {
   } | null>(null);
   const [loadingNotificationEmail, setLoadingNotificationEmail] = React.useState(false);
   const [savingNotificationEmail, setSavingNotificationEmail] = React.useState(false);
+  const scanInProgressRef = React.useRef(false);
+
+  const triggerSpoilageScan = React.useCallback(async () => {
+    if (scanInProgressRef.current) {
+      return;
+    }
+
+    scanInProgressRef.current = true;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user.id) {
+        return;
+      }
+
+      await runSpoilagePreventionScan({ data: { userId: session.user.id } });
+    } catch (scanError) {
+      console.error("[Dashboard] Spoilage scan failed:", scanError);
+    } finally {
+      scanInProgressRef.current = false;
+    }
+  }, []);
 
   const loadDashboard = React.useCallback(async () => {
     setLoading(true);
@@ -510,9 +535,7 @@ function DashboardPage() {
         });
 
         if (session?.user.id) {
-          runSpoilagePreventionScan({ data: { userId: session.user.id } }).catch(() => {
-            // Avoid breaking the weather UI if the scan fails.
-          });
+          triggerSpoilageScan();
         }
       } catch (e) {
         setWeather((current) => ({
@@ -547,7 +570,17 @@ function DashboardPage() {
       );
       window.removeEventListener(WEATHER_LOCATION_ERROR_EVENT, handleLocationError as EventListener);
     };
-  }, []);
+  }, [triggerSpoilageScan]);
+
+  React.useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      triggerSpoilageScan();
+    }, 2 * 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [triggerSpoilageScan]);
 
   async function createStorageRoom(e: React.FormEvent) {
     e.preventDefault();
@@ -582,6 +615,7 @@ function DashboardPage() {
       setActionMessage("Storage room created.");
       setRoomForm((current) => ({ ...current, name: "", location: "" }));
       await loadDashboard();
+      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to create storage room.");
     } finally {
@@ -615,6 +649,7 @@ function DashboardPage() {
       setActionMessage("Product created.");
       setProductForm((current) => ({ ...current, name: "", quantity: "1" }));
       await loadDashboard();
+      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to create product.");
     } finally {
@@ -660,6 +695,7 @@ function DashboardPage() {
       setActionMessage("Room updated.");
       setEditingRoomId(null);
       await loadDashboard();
+      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to update room.");
     } finally {
@@ -691,6 +727,7 @@ function DashboardPage() {
       setActionMessage("Product assigned to room.");
       setExistingProductByRoom((current) => ({ ...current, [roomId]: "" }));
       await loadDashboard();
+      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to assign product to room.");
     } finally {
@@ -741,6 +778,7 @@ function DashboardPage() {
         setEditingRoomId(null);
       }
       await loadDashboard();
+      await triggerSpoilageScan();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to delete room.");
     } finally {
