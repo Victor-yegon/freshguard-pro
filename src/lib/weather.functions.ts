@@ -101,7 +101,7 @@ export const getWeatherForLocation = createServerFn({ method: "POST" })
     const nominatimPayload = nominatimResponse?.ok
       ? ((await nominatimResponse.json()) as NominatimReverseResponse)
       : {};
-    const current = payload.current ?? {};
+    const current: OpenMeteoResponse["current"] = payload.current;
     const firstLocation = geoPayload.results?.[0];
     const nominatimAddress = nominatimPayload.address;
     const openMeteoName = firstLocation
@@ -127,13 +127,13 @@ export const getWeatherForLocation = createServerFn({ method: "POST" })
       timezone: payload.timezone,
       locationName,
       current: {
-        time: current.time ?? new Date().toISOString(),
+        time: current?.time ?? new Date().toISOString(),
         temperature_2m:
-          typeof current.temperature_2m === "number" ? current.temperature_2m : null,
+          typeof current?.temperature_2m === "number" ? current.temperature_2m : null,
         relative_humidity_2m:
-          typeof current.relative_humidity_2m === "number" ? current.relative_humidity_2m : null,
-        wind_speed_10m: typeof current.wind_speed_10m === "number" ? current.wind_speed_10m : null,
-        weather_code: typeof current.weather_code === "number" ? current.weather_code : null,
+          typeof current?.relative_humidity_2m === "number" ? current.relative_humidity_2m : null,
+        wind_speed_10m: typeof current?.wind_speed_10m === "number" ? current.wind_speed_10m : null,
+        weather_code: typeof current?.weather_code === "number" ? current.weather_code : null,
       },
     } satisfies WeatherSnapshot;
   });

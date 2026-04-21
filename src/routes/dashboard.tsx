@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import * as React from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 import { getWeatherForLocation, type WeatherSnapshot } from "@/lib/weather.functions";
+import { runSpoilagePreventionScan } from "@/lib/spoilage.functions";
 import { z } from "zod";
 import {
   Bar,
@@ -22,6 +23,14 @@ import { MainLayout } from "@/components/layouts/MainLayout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Loader2 } from "lucide-react";
 
 type RoomRow = {
@@ -113,8 +122,21 @@ type WeatherHistoryRow = {
   humidity: number | null;
 };
 
+type GeolocationSuccessDetail = {
+  latitude: number;
+  longitude: number;
+};
+
+type GeolocationErrorDetail = {
+  code: number;
+  message: string;
+};
+
+const WEATHER_LOCATION_SUCCESS_EVENT = "freshguard:weather-location-success";
+const WEATHER_LOCATION_ERROR_EVENT = "freshguard:weather-location-error";
+
 const dashboardViewSchema = z.object({
-  view: z.enum(["overview", "products", "rooms", "reports"]).optional(),
+  view: z.enum(["overview", "products", "rooms", "reports", "notifications"]).optional(),
 });
 
 export const Route = createFileRoute("/dashboard")({
@@ -204,6 +226,13 @@ function DashboardPage() {
   });
   const [actionMessage, setActionMessage] = React.useState<string>("");
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [notificationEmail, setNotificationEmail] = React.useState<string>("");
+  const [notificationEmailStatus, setNotificationEmailStatus] = React.useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  const [loadingNotificationEmail, setLoadingNotificationEmail] = React.useState(false);
+  const [savingNotificationEmail, setSavingNotificationEmail] = React.useState(false);
 
   const loadDashboard = React.useCallback(async () => {
     setLoading(true);
@@ -381,6 +410,144 @@ function DashboardPage() {
     loadDashboard();
     loadWeatherFromLocation();
   }, [loadDashboard]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    async function loadSettings() {
+      setLoadingNotificationEmail(true);
+      setNotificationEmailStatus(null);
+
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!active) return;
+        if (!session?.user.id) {
+          setNotificationEmail("");
+          return;
+        }
+
+        const { data, error: settingsError } = await supabase
+          .from("alert_notification_settings")
+          .select("email")
+          .eq("user_id", session.user.id)
+          .maybeSingle<{ email: string }>();
+
+        if (!active) return;
+        if (settingsError) {
+          throw new Error(settingsError.message);
+        }
+
+        setNotificationEmail(data?.email ?? session.user.email ?? "");
+      } catch (e) {
+        if (!active) return;
+        setNotificationEmailStatus({
+          ok: false,
+          message: e instanceof Error ? e.message : "Failed to load notification settings.",
+        });
+      } finally {
+        if (!active) return;
+        setLoadingNotificationEmail(false);
+      }
+    }
+
+    loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    async function handleLocationSuccess(event: Event) {
+      const customEvent = event as CustomEvent<GeolocationSuccessDetail>;
+      const { latitude, longitude } = customEvent.detail;
+
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const snapshot = await getWeatherForLocation({ data: { latitude, longitude } });
+
+        if (session?.user.id) {
+          const persistResult = await supabase.from("weather_history").insert({
+            user_id: session.user.id,
+            latitude,
+            longitude,
+            timezone: snapshot.timezone,
+            temperature: snapshot.current.temperature_2m,
+            humidity: snapshot.current.relative_humidity_2m,
+            wind_speed: snapshot.current.wind_speed_10m,
+            weather_code: snapshot.current.weather_code,
+            recorded_at: snapshot.current.time,
+          });
+
+          if (persistResult.error) {
+            throw new Error(persistResult.error.message);
+          }
+        }
+
+        setWeather({
+          loading: false,
+          error: null,
+          data: snapshot,
+          coordinates: { latitude, longitude },
+          locationName: snapshot.locationName,
+        });
+
+        setWeatherHistory((current) => {
+          const nextPoint: WeatherHistoryPoint = {
+            time: snapshot.current.time,
+            temperature: snapshot.current.temperature_2m,
+            humidity: snapshot.current.relative_humidity_2m,
+          };
+
+          const next = [...current, nextPoint];
+          return next.slice(-24);
+        });
+
+        if (session?.user.id) {
+          runSpoilagePreventionScan({ data: { userId: session.user.id } }).catch(() => {
+            // Avoid breaking the weather UI if the scan fails.
+          });
+        }
+      } catch (e) {
+        setWeather((current) => ({
+          ...current,
+          loading: false,
+          error: e instanceof Error ? e.message : "Failed to fetch weather.",
+        }));
+      }
+    }
+
+    function handleLocationError(event: Event) {
+      const customEvent = event as CustomEvent<GeolocationErrorDetail>;
+      const { code, message } = customEvent.detail;
+
+      setWeather((current) => ({
+        ...current,
+        loading: false,
+        error: code === 1 ? "Location permission denied." : message,
+      }));
+    }
+
+    window.addEventListener(
+      WEATHER_LOCATION_SUCCESS_EVENT,
+      handleLocationSuccess as EventListener,
+    );
+    window.addEventListener(WEATHER_LOCATION_ERROR_EVENT, handleLocationError as EventListener);
+
+    return () => {
+      window.removeEventListener(
+        WEATHER_LOCATION_SUCCESS_EVENT,
+        handleLocationSuccess as EventListener,
+      );
+      window.removeEventListener(WEATHER_LOCATION_ERROR_EVENT, handleLocationError as EventListener);
+    };
+  }, []);
 
   async function createStorageRoom(e: React.FormEvent) {
     e.preventDefault();
@@ -594,87 +761,52 @@ function DashboardPage() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const supabase = getSupabaseBrowserClient();
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-
-          const latitude = position.coords.latitude;
-          const longitude = position.coords.longitude;
-          const snapshot = await getWeatherForLocation({ data: { latitude, longitude } });
-
-          if (session?.user.id) {
-            const persistResult = await supabase.from("weather_history").insert({
-              user_id: session.user.id,
-              latitude,
-              longitude,
-              timezone: snapshot.timezone,
-              temperature: snapshot.current.temperature_2m,
-              humidity: snapshot.current.relative_humidity_2m,
-              wind_speed: snapshot.current.wind_speed_10m,
-              weather_code: snapshot.current.weather_code,
-              recorded_at: snapshot.current.time,
-            });
-
-            if (persistResult.error) {
-              throw new Error(persistResult.error.message);
-            }
-          }
-
-          setWeather({
-            loading: false,
-            error: null,
-            data: snapshot,
-            coordinates: { latitude, longitude },
-            locationName: snapshot.locationName,
-          });
-
-          setWeatherHistory((current) => {
-            const nextPoint: WeatherHistoryPoint = {
-              time: snapshot.current.time,
-              temperature: snapshot.current.temperature_2m,
-              humidity: snapshot.current.relative_humidity_2m,
-            };
-
-            const next = [...current, nextPoint];
-            return next.slice(-24);
-          });
-        } catch (e) {
-          setWeather((current) => ({
-            ...current,
-            loading: false,
-            error: e instanceof Error ? e.message : "Failed to fetch weather.",
-          }));
-        }
+      (position) => {
+        window.dispatchEvent(
+          new CustomEvent<GeolocationSuccessDetail>(WEATHER_LOCATION_SUCCESS_EVENT, {
+            detail: {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            },
+          }),
+        );
       },
       (positionError) => {
-        setWeather((current) => ({
-          ...current,
-          loading: false,
-          error:
-            positionError.code === positionError.PERMISSION_DENIED
-              ? "Location permission denied."
-              : positionError.message,
-        }));
+        window.dispatchEvent(
+          new CustomEvent<GeolocationErrorDetail>(WEATHER_LOCATION_ERROR_EVENT, {
+            detail: {
+              code: positionError.code,
+              message: positionError.message,
+            },
+          }),
+        );
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
     );
   }
+
+  const latestWeatherHistory =
+    weatherHistory.length > 0 ? weatherHistory[weatherHistory.length - 1] : null;
 
   const roomCurrentTemperature =
     weather.data?.current.temperature_2m ?? latestWeatherHistory?.temperature ?? null;
   const roomCurrentHumidity =
     weather.data?.current.relative_humidity_2m ?? latestWeatherHistory?.humidity ?? null;
 
+  const summaryTemperature =
+    state.avgTemperature !== null
+      ? state.avgTemperature
+      : weather.data?.current.temperature_2m ?? latestWeatherHistory?.temperature ?? null;
+  const summaryHumidity =
+    state.avgHumidity !== null
+      ? state.avgHumidity
+      : weather.data?.current.relative_humidity_2m ?? latestWeatherHistory?.humidity ?? null;
+
   const healthyRooms = state.rooms.filter((room) => {
     if (roomCurrentTemperature === null || roomCurrentHumidity === null) return false;
 
     return (
-      Number(roomCurrentTemperature) >= Number(room.ideal_temperature_min) &&
       Number(roomCurrentTemperature) <= Number(room.ideal_temperature_max) &&
-      Number(roomCurrentHumidity) >= Number(room.ideal_humidity_min) &&
       Number(roomCurrentHumidity) <= Number(room.ideal_humidity_max)
     );
   }).length;
@@ -746,17 +878,6 @@ function DashboardPage() {
       ? weather.data.timezone.split("/").pop()?.replace(/_/g, " ") ?? null
       : null);
 
-  const latestWeatherHistory = weatherHistory.length > 0 ? weatherHistory[weatherHistory.length - 1] : null;
-
-  const summaryTemperature =
-    state.avgTemperature !== null
-      ? state.avgTemperature
-      : weather.data?.current.temperature_2m ?? latestWeatherHistory?.temperature ?? null;
-  const summaryHumidity =
-    state.avgHumidity !== null
-      ? state.avgHumidity
-      : weather.data?.current.relative_humidity_2m ?? latestWeatherHistory?.humidity ?? null;
-
   const summaryTemperatureSub =
     state.avgTemperature !== null
       ? "Latest room readings"
@@ -775,7 +896,7 @@ function DashboardPage() {
           ? "From recent weather history"
         : "No readings yet";
 
-  function goToView(view: "overview" | "products" | "rooms" | "reports") {
+  function goToView(view: "overview" | "products" | "rooms" | "reports" | "notifications") {
     navigate({
       to: "/dashboard",
       search: (prev) => ({ ...prev, view }),
@@ -834,6 +955,15 @@ function DashboardPage() {
             >
               Products
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeView === "notifications" ? "default" : "secondary"}
+              className="w-full cursor-pointer justify-start rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+              onClick={() => goToView("notifications")}
+            >
+              Notification email
+            </Button>
           </div>
 
           <div className="space-y-2">
@@ -878,8 +1008,8 @@ function DashboardPage() {
         </Alert>
       ) : null}
 
-      {activeView === "overview" ? (
-        <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {activeView === "overview" ? (
+            <section className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
             <h2 className="text-lg font-semibold text-foreground">Current location</h2>
             {weather.loading ? (
@@ -958,8 +1088,111 @@ function DashboardPage() {
               />
             </div>
           </div>
-        </section>
-      ) : null}
+            </section>
+          ) : null}
+
+          {activeView === "notifications" ? (
+            <section id="notifications" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
+                <h2 className="text-lg font-semibold text-foreground">Alert notification email</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Alerts and auto-move actions are emailed to this address.
+                </p>
+
+                {notificationEmailStatus ? (
+                  <Alert
+                    className={`mt-4 rounded-2xl ${
+                      notificationEmailStatus.ok
+                        ? "border-safe/30 bg-safe/10 text-foreground"
+                        : "border-destructive/30 bg-destructive/10 text-destructive"
+                    }`}
+                  >
+                    <AlertDescription>{notificationEmailStatus.message}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                <form
+                  className="mt-4 space-y-3"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setSavingNotificationEmail(true);
+                    setNotificationEmailStatus(null);
+
+                    try {
+                      const parsedEmail = z.string().trim().email().parse(notificationEmail);
+                      const supabase = getSupabaseBrowserClient();
+                      const {
+                        data: { session },
+                      } = await supabase.auth.getSession();
+
+                      if (!session?.user.id) {
+                        throw new Error("Please login again.");
+                      }
+
+                      const { error: upsertError } = await supabase
+                        .from("alert_notification_settings")
+                        .upsert({
+                          user_id: session.user.id,
+                          email: parsedEmail,
+                          updated_at: new Date().toISOString(),
+                        });
+
+                      if (upsertError) {
+                        throw new Error(upsertError.message);
+                      }
+
+                      setNotificationEmail(parsedEmail);
+                      setNotificationEmailStatus({ ok: true, message: "Notification email saved." });
+                    } catch (err) {
+                      setNotificationEmailStatus({
+                        ok: false,
+                        message: err instanceof Error ? err.message : "Failed to save notification email.",
+                      });
+                    } finally {
+                      setSavingNotificationEmail(false);
+                    }
+                  }}
+                >
+                  <div className="space-y-2">
+                    <label htmlFor="notification-email" className="text-sm font-medium text-foreground">
+                      Email address
+                    </label>
+                    <Input
+                      id="notification-email"
+                      type="email"
+                      className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                      placeholder="alerts@company.com"
+                      value={notificationEmail}
+                      disabled={loadingNotificationEmail || savingNotificationEmail}
+                      onChange={(e) => setNotificationEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="rounded-xl"
+                    disabled={loadingNotificationEmail || savingNotificationEmail}
+                  >
+                    {savingNotificationEmail ? "Saving..." : "Save email"}
+                  </Button>
+                </form>
+              </div>
+
+              <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-md">
+                <h2 className="text-lg font-semibold text-foreground">How alerts work</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  When temperature or humidity falls outside a room’s safe range, the system evaluates each product,
+                  tries to auto-relocate it to a safer room, and emails the result.
+                </p>
+                <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <p>1. Detect unsafe temperature/humidity.</p>
+                  <p>2. Identify affected products.</p>
+                  <p>3. Auto-move if a safe room exists.</p>
+                  <p>4. Create an alert and send an email.</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           {activeView === "products" ? (
             <section id="products" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -1046,16 +1279,28 @@ function DashboardPage() {
               {state.products.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">No products found.</p>
               ) : (
-                <ul className="mt-4 space-y-2">
-                  {state.products.map((product) => (
-                    <li key={product.id} className="rounded-lg border border-border/60 px-3 py-2 text-sm">
-                      <p className="font-medium text-foreground">{product.name}</p>
-                      <p className="text-muted-foreground">
-                        {product.category ?? "Uncategorized"} · Qty {product.quantity} · Room {roomNameById.get(product.storage_room_id) ?? "—"}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <div className="mt-4 rounded-xl border border-border/60">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product name</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Room currently in</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {state.products.map((product) => (
+                        <TableRow key={product.id}>
+                          <TableCell className="font-medium text-foreground">{product.name}</TableCell>
+                          <TableCell>{product.category ?? "Uncategorized"}</TableCell>
+                          <TableCell>{product.quantity}</TableCell>
+                          <TableCell>{roomNameById.get(product.storage_room_id) ?? "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </div>
             </section>
@@ -1169,15 +1414,13 @@ function DashboardPage() {
               ) : (
                 <ul className="mt-4 space-y-3">
                   {state.rooms.map((room) => {
-                    const inTempRange =
+                    const tempAboveMax =
                       roomCurrentTemperature !== null &&
-                      Number(roomCurrentTemperature) >= Number(room.ideal_temperature_min) &&
-                      Number(roomCurrentTemperature) <= Number(room.ideal_temperature_max);
-                    const inHumidityRange =
+                      Number(roomCurrentTemperature) > Number(room.ideal_temperature_max);
+                    const humidityAboveMax =
                       roomCurrentHumidity !== null &&
-                      Number(roomCurrentHumidity) >= Number(room.ideal_humidity_min) &&
-                      Number(roomCurrentHumidity) <= Number(room.ideal_humidity_max);
-                    const inRange = !!(inTempRange && inHumidityRange);
+                      Number(roomCurrentHumidity) > Number(room.ideal_humidity_max);
+                    const outOfRange = tempAboveMax || humidityAboveMax;
 
                     return (
                       <li
@@ -1194,13 +1437,13 @@ function DashboardPage() {
                           </div>
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                              inRange
+                              !outOfRange
                                 ? "bg-safe/15 text-safe"
-                                : "bg-warning/20 text-warning-foreground"
+                                : "bg-destructive/15 text-destructive"
                             }`}
                           >
                             {roomCurrentTemperature !== null && roomCurrentHumidity !== null
-                              ? inRange
+                              ? !outOfRange
                                 ? "In range"
                                 : "Out of range"
                               : "No weather data"}
@@ -1477,13 +1720,13 @@ function DashboardPage() {
             />
             <MetricCard
               label="Average temperature"
-              value={state.avgTemperature !== null ? `${state.avgTemperature}°C` : "—"}
-              sub="Latest readings"
+              value={summaryTemperature !== null ? `${summaryTemperature.toFixed(1)}°C` : "—"}
+              sub={summaryTemperatureSub}
             />
             <MetricCard
               label="Average humidity"
-              value={state.avgHumidity !== null ? `${state.avgHumidity}%` : "—"}
-              sub="Latest readings"
+              value={summaryHumidity !== null ? `${summaryHumidity.toFixed(1)}%` : "—"}
+              sub={summaryHumiditySub}
             />
             <MetricCard
               label="Active alerts"

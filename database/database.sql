@@ -11,6 +11,17 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- =========================
+-- 1b. ALERT NOTIFICATION SETTINGS
+-- =========================
+-- Single per-user email used for spoilage/alert notifications.
+CREATE TABLE IF NOT EXISTS alert_notification_settings (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    email VARCHAR(150) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =========================
 -- 2. STORAGE ROOMS
 -- =========================
 CREATE TABLE IF NOT EXISTS storage_rooms (
@@ -171,6 +182,27 @@ FOR UPDATE
 TO authenticated
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
+
+ALTER TABLE alert_notification_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS alert_notification_settings_select_own ON alert_notification_settings;
+CREATE POLICY alert_notification_settings_select_own ON alert_notification_settings
+FOR SELECT
+TO authenticated
+USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS alert_notification_settings_upsert_own ON alert_notification_settings;
+CREATE POLICY alert_notification_settings_upsert_own ON alert_notification_settings
+FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS alert_notification_settings_update_own ON alert_notification_settings;
+CREATE POLICY alert_notification_settings_update_own ON alert_notification_settings
+FOR UPDATE
+TO authenticated
+USING (user_id = auth.uid())
+WITH CHECK (user_id = auth.uid());
 
 ALTER TABLE storage_rooms ENABLE ROW LEVEL SECURITY;
 

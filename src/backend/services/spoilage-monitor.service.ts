@@ -32,6 +32,20 @@ type User = {
   email: string;
 };
 
+type NotificationSetting = {
+  email: string;
+};
+
+type AlertInsert = {
+  storage_room_id: string;
+  product_id: string | null;
+  severity: "INFO" | "WARNING" | "DANGER" | "CRITICAL";
+  message: string;
+  duration_minutes: number;
+  status: "ACTIVE" | "RESOLVED";
+  source: "REAL" | "SIMULATION";
+};
+
 export type SpoilageMonitorResult = {
   evaluatedRooms: number;
   affectedRooms: number;
@@ -76,6 +90,17 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
   const allRooms = rooms ?? [];
   if (allRooms.length === 0) {
     return emptyResult();
+  }
+
+  let notificationEmail = user?.email ?? process.env.GMAIL_USER ?? "";
+  const { data: notificationSetting, error: notificationSettingError } = await supabase
+    .from("alert_notification_settings")
+    .select("email")
+    .eq("user_id", userId)
+    .maybeSingle<NotificationSetting>();
+
+  if (!notificationSettingError && notificationSetting?.email) {
+    notificationEmail = notificationSetting.email;
   }
 
   const latestWeather = weather?.[0];
@@ -184,13 +209,48 @@ export async function runSpoilagePrevention(userId: string): Promise<SpoilageMon
         unresolvedProducts += 1;
       }
 
+      const severity = getAlertSeverity({
+        temp: currentTemp,
+        humidity: currentHumidity,
+        minTemp,
+        maxTemp,
+        minHumidity,
+        maxHumidity,
+      });
+      const alertStatus: AlertInsert["status"] = actionTaken.startsWith("AUTO_MOVED") ? "RESOLVED" : "ACTIVE";
+      const safeRangeLabel = `Temp ${minTemp.toFixed(1)}\u00B0C-${maxTemp.toFixed(1)}\u00B0C, Humidity ${minHumidity.toFixed(1)}%-${maxHumidity.toFixed(1)}%`;
+      const alertMessage = [
+        `Food spoilage risk detected for ${product.name}.`,
+        `Room: ${room.name}.`,
+        `Current: ${currentTemp.toFixed(1)}\u00B0C, ${currentHumidity.toFixed(1)}%.`,
+        `Safe range: ${safeRangeLabel}.`,
+        `Problem: ${issueSummary.problem}.`,
+        actionTaken.startsWith("AUTO_MOVED")
+          ? `Action taken: Product automatically moved to ${targetRoom?.name}.`
+          : "Action taken: No suitable room available.",
+      ].join(" ");
+
+      const { error: alertInsertError } = await supabase.from("alerts").insert({
+        storage_room_id: room.id,
+        product_id: product.id,
+        severity,
+        message: alertMessage,
+        duration_minutes: 0,
+        status: alertStatus,
+        source: "SIMULATION",
+      } satisfies AlertInsert);
+
+      if (alertInsertError) {
+        throw new Error(alertInsertError.message);
+      }
+
       await sendSpoilageRiskEmail({
-        to: user?.email ?? process.env.GMAIL_USER ?? "",
+        to: notificationEmail || user?.email || process.env.GMAIL_USER || "",
         productName: product.name,
         currentRoomName: room.name,
         currentTemperature: currentTemp,
         currentHumidity,
-        safeTempRange: `${minTemp.toFixed(1)}°C - ${maxTemp.toFixed(1)}°C`,
+        safeTempRange: `${minTemp.toFixed(1)}\u00B0C - ${maxTemp.toFixed(1)}\u00B0C`,
         safeHumidityRange: `${minHumidity.toFixed(1)}% - ${maxHumidity.toFixed(1)}%`,
         problem: issueSummary.problem,
         riskExplanation: issueSummary.riskExplanation,
@@ -261,6 +321,32 @@ function explainProblem(params: {
       : "Low temperature/humidity can damage product quality and shelf stability.";
 
   return { problem, riskExplanation };
+}
+
+function getAlertSeverity(params: {
+  temp: number;
+  humidity: number;
+  minTemp: number;
+  maxTemp: number;
+  minHumidity: number;
+  maxHumidity: number;
+}): AlertInsert["severity"] {
+  const tempDeviation = getRangeDeviation(params.temp, params.minTemp, params.maxTemp);
+  const humidityDeviation = getRangeDeviation(params.humidity, params.minHumidity, params.maxHumidity);
+
+  if (tempDeviation > 2 || humidityDeviation > 10) {
+    return "CRITICAL";
+  }
+  if (tempDeviation > 1 || humidityDeviation > 5) {
+    return "DANGER";
+  }
+  return "WARNING";
+}
+
+function getRangeDeviation(value: number, min: number, max: number) {
+  if (value < min) return min - value;
+  if (value > max) return value - max;
+  return 0;
 }
 
 function emptyResult(): SpoilageMonitorResult {
